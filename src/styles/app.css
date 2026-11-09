@@ -1472,3 +1472,25 @@ button { cursor: pointer; }
   color: #a06a14;
   font-weight: 600;
 }
+
+/* 引导弹窗关闭按钮 */
+.ob-close {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink-3);
+  padding: 0 2px;
+  cursor: pointer;
+  flex: none;
+}
+.ob-close:hover { color: var(--ink); }
+.ob-note code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: rgba(0,0,0,.06);
+  border-radius: 4px;
+  padding: 1px 5px;
+  word-break: break-all;
+}

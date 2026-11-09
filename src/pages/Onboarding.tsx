@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { api } from '../lib/api'
 
 export interface OnboardState {
@@ -8,33 +8,26 @@ export interface OnboardState {
   canPickFolder: boolean
 }
 
-const STEP_KEY = 'twb.onboard.step'
-
-/** 登录后的首次引导：设置数据位置 + 选择是否导入数据。不含账号登录。 */
+/** 登录后的首次引导弹窗：设置数据位置 + 选择是否导入数据。可随时关闭跳过。 */
 export default function Onboarding({ state, onDone }: { state: OnboardState; onDone: () => void }) {
   const [step, setStep] = useState(0)
   const [dataDir, setDataDir] = useState(state.dataDir)
-  const [pickedAgain, setPickedAgain] = useState(false)
   const [source, setSource] = useState<'demo' | 'blank'>('demo')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-
-  useEffect(() => {
-    localStorage.setItem(STEP_KEY, String(step))
-  }, [step])
+  const [moved, setMoved] = useState(false)
 
   async function pickFolder() {
     setError('')
-    if (state.canPickFolder) {
-      try {
-        const r = await api<{ path: string | null }>('/native/pick-folder', {
-          body: { defaultPath: dataDir },
-        })
-        if (!r.path) return
-        await moveTo(r.path)
-      } catch (e) {
-        setError(e instanceof Error ? e.message : '打开选择框失败')
-      }
+    if (!state.canPickFolder) return
+    try {
+      const r = await api<{ path: string | null }>('/native/pick-folder', {
+        body: { defaultPath: dataDir },
+      })
+      if (!r.path) return
+      await moveTo(r.path)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '打开选择框失败')
     }
   }
 
@@ -43,20 +36,13 @@ export default function Onboarding({ state, onDone }: { state: OnboardState; onD
     try {
       const r = await api<{ dataDir: string }>('/settings/move-data', { body: { targetDir: target } })
       setDataDir(r.dataDir)
-      setPickedAgain(true)
+      setMoved(true)
       setError('')
+      // 迁移已通过 VACUUM INTO 完成并写好 location.json，下次启动自动用新位置，无需手动重启
     } catch (e) {
       setError(e instanceof Error ? e.message : '迁移失败')
     } finally {
       setBusy(false)
-    }
-  }
-
-  async function restartNow() {
-    try {
-      await api('/native/relaunch', { method: 'POST' })
-    } catch {
-      setError('当前环境不支持自动重启，请手动关闭后重新打开')
     }
   }
 
@@ -65,7 +51,6 @@ export default function Onboarding({ state, onDone }: { state: OnboardState; onD
     try {
       if (source === 'blank') await api('/settings/clear-data', { method: 'POST' })
       await api('/onboard-complete', { method: 'POST' })
-      localStorage.removeItem(STEP_KEY)
       onDone()
     } catch (err) {
       setError(err instanceof Error ? err.message : '保存失败')
@@ -74,11 +59,22 @@ export default function Onboarding({ state, onDone }: { state: OnboardState; onD
     }
   }
 
+  // 关闭弹窗 = 跳过引导，直接标记完成
+  async function skip() {
+    setBusy(true)
+    try {
+      await api('/onboard-complete', { method: 'POST' })
+      onDone()
+    } catch {
+      onDone()
+    }
+  }
+
   const steps = ['数据位置', '开始使用']
 
   return (
-    <div className="ob-wrap">
-      <div className="ob-card">
+    <div className="ob-wrap" onClick={skip}>
+      <div className="ob-card" onClick={(e) => e.stopPropagation()}>
         <header className="ob-head">
           <div className="login-brand">
             <img className="mark" src="/icon.png" alt="" />
@@ -92,6 +88,9 @@ export default function Onboarding({ state, onDone }: { state: OnboardState; onD
               </span>
             ))}
           </div>
+          <button className="ob-close" onClick={skip} aria-label="关闭" disabled={busy}>
+            ×
+          </button>
         </header>
 
         {/* 第 1 步：数据位置 */}
@@ -131,26 +130,20 @@ export default function Onboarding({ state, onDone }: { state: OnboardState; onD
                   </button>
                 </>
               )}
-              <button className="pill ghost" type="button" onClick={() => setStep(1)}>
-                用默认位置，下一步
-              </button>
             </div>
 
-            {pickedAgain && (
+            {moved && (
               <div className="ob-note">
-                已复制到新位置。<b>需要重启一次才会生效</b>，重启后会自动回到这一步继续。
-                <div style={{ marginTop: 10 }}>
-                  <button className="pill dark" type="button" onClick={restartNow}>
-                    立即重启
-                  </button>
-                </div>
+                数据已复制到 <code>{dataDir}</code>，下次启动自动生效，无需重启。
               </div>
             )}
-
             {error && <div className="err">{error}</div>}
-            {!pickedAgain && (
-              <p className="ob-hint">不确定就先点右边「用默认位置」，以后在设置里也能改。</p>
-            )}
+
+            <div className="ob-foot">
+              <button className="pill" type="button" onClick={() => setStep(1)}>
+                下一步
+              </button>
+            </div>
           </section>
         )}
 

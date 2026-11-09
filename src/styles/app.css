@@ -1494,3 +1494,12 @@ button { cursor: pointer; }
   padding: 1px 5px;
   word-break: break-all;
 }
+
+/* 检查更新结果提示 */
+.set-update-msg {
+  font-size: 12px;
+  color: #2f5b96;
+  background: #eef4fd;
+  border-radius: 8px;
+  padding: 7px 12px;
+}

@@ -1533,6 +1533,17 @@ app.post('/api/native/relaunch', (_req, res) => {
   setTimeout(() => api.relaunch(), 300)
 })
 
+app.post('/api/native/check-update', async (_req, res) => {
+  const api = nativeApi()
+  if (!api?.checkUpdate) return res.status(501).json({ error: '当前环境不支持自动更新' })
+  try {
+    const result = await api.checkUpdate()
+    res.json(result)
+  } catch (e) {
+    res.status(500).json({ ok: false, msg: '检查更新失败' })
+  }
+})
+
 /* ---------------- 首次启动引导 ---------------- */
 
 app.get('/api/onboard-state', requireAuth, (req, res) => {

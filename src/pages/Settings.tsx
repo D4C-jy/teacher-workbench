@@ -42,6 +42,9 @@ export default function Settings() {
   } | null>(null)
   const [csvRows, setCsvRows] = useState<Array<{ name: string; className: string; courseName: string; lessons: number }>>([])
   const [importing, setImporting] = useState(false)
+  const [appVersion, setAppVersion] = useState('')
+  const [checking, setChecking] = useState(false)
+  const [updateMsg, setUpdateMsg] = useState('')
   const [monthly, setMonthly] = useState<{
     lessons: number
     revenue: number
@@ -76,6 +79,29 @@ export default function Settings() {
   function toast(msg: string) {
     setFlash(msg)
     setTimeout(() => setFlash(''), 2400)
+  }
+
+  async function checkUpdate() {
+    setChecking(true)
+    setUpdateMsg('')
+    try {
+      const r = await api<{ ok: boolean; hasUpdate?: boolean; version?: string; current?: string; msg?: string }>(
+        '/native/check-update',
+        { method: 'POST' }
+      )
+      if (r.current) setAppVersion(r.current)
+      if (r.hasUpdate) {
+        setUpdateMsg(`发现新版本 v${r.version}，已弹出下载询问`)
+      } else if (r.ok) {
+        setUpdateMsg(`已是最新版本 v${r.current}`)
+      } else {
+        setUpdateMsg(r.msg || '检查更新失败')
+      }
+    } catch (err) {
+      setUpdateMsg(err instanceof Error ? err.message : '检查更新失败')
+    } finally {
+      setChecking(false)
+    }
   }
 
   async function saveConfig(e: React.FormEvent) {
@@ -306,9 +332,18 @@ export default function Settings() {
               <button className="pill small" onClick={() => logout()} style={{ marginLeft: 'auto', height: 32 }}>
                 退出登录
               </button>
+              <button className="pill small" onClick={checkUpdate} disabled={checking} style={{ height: 32 }}>
+                {checking ? '检查中…' : '检查更新'}
+              </button>
             </div>
           </div>
 
+          {updateMsg && (
+            <div className="set-update-msg">
+              {updateMsg}
+              {appVersion && `（当前 v${appVersion}）`}
+            </div>
+          )}
           {monthly && (
             <div className="set-account-stats">
               <div>

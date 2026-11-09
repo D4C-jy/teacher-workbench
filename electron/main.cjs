@@ -43,6 +43,51 @@ global.__twbNative = {
     app.relaunch()
     app.exit(0)
   },
+  // 手动检查更新：返回 { hasUpdate, version, current }，有新版本时弹下载询问框
+  checkUpdate() {
+    return new Promise((resolve) => {
+      if (!updateReady || !app.isPackaged) {
+        resolve({ ok: false, msg: '当前环境不支持自动更新（开发版）' })
+        return
+      }
+      let settled = false
+      const finish = (r) => {
+        if (!settled) {
+          settled = true
+          resolve(r)
+        }
+      }
+
+      // 临时监听"有更新"
+      const onAvailable = (info) => {
+        finish({ ok: true, hasUpdate: true, version: info.version, current: app.getVersion() })
+        const choice = dialog.showMessageBoxSync(mainWindow, {
+          type: 'info',
+          title: '发现新版本',
+          message: `发现新版本 v${info.version}（当前 v${app.getVersion()}）`,
+          detail: '是否现在下载更新？下载完成后重启即可安装。数据不会丢失。',
+          buttons: ['下载更新', '稍后再说'],
+          defaultId: 0,
+        })
+        if (choice === 0) autoUpdater.downloadUpdate()
+      }
+      const onNotAvailable = () => {
+        finish({ ok: true, hasUpdate: false, current: app.getVersion() })
+      }
+      const onError = (e) => {
+        finish({ ok: false, msg: e?.message || '检查更新失败' })
+      }
+
+      autoUpdater.once('update-available', onAvailable)
+      autoUpdater.once('update-not-available', onNotAvailable)
+      autoUpdater.once('error', onError)
+
+      autoUpdater.checkForUpdates().catch(onError)
+
+      // 15 秒超时兜底
+      setTimeout(() => finish({ ok: false, msg: '检查更新超时' }), 15000)
+    })
+  },
 }
 
 /** 首次启动让用户选数据目录，避免默认落到 C 盘 */

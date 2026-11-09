@@ -8,6 +8,7 @@ import Placeholder from './pages/Placeholder'
 import Timetable from './pages/Timetable'
 import Students from './pages/Students'
 import Equipment from './pages/Equipment'
+import Classes from './pages/Classes'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
 import Onboarding, { type OnboardState } from './pages/Onboarding'
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="/" element={<Today />} />
         <Route path="/timetable" element={<Timetable />} />
         <Route path="/students" element={<Students />} />
+        <Route path="/classes" element={<Classes />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/equipment" element={<Equipment />} />
         <Route path="/settings" element={<Settings />} />

@@ -44,6 +44,84 @@ const T_STEP = 15
 const fmtMin = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 const TONE = ['blue', 'green', 'cream', 'pink', 'gray']
 
+/**
+ * iOS 风格滚轮列：上下滚动选择值，中间高亮。
+ * 支持鼠标滚轮 + 拖拽 + 点击上下项。
+ */
+function WheelColumn({
+  values,
+  value,
+  onChange,
+  pad,
+}: {
+  values: number[]
+  value: number
+  onChange: (v: number) => void
+  pad?: boolean
+}) {
+  const idx = values.indexOf(value)
+  const itemH = 34
+
+  function go(delta: number) {
+    const ni = Math.max(0, Math.min(values.length - 1, idx + delta))
+    onChange(values[ni])
+  }
+
+  function onWheel(e: React.WheelEvent) {
+    if (e.deltaY === 0) return
+    go(e.deltaY > 0 ? 1 : -1)
+  }
+
+  // 拖拽滚动
+  let dragging = false
+  let lastY = 0
+
+  return (
+    <div className="wheel" onWheel={onWheel}>
+      <button type="button" className="wheel-up" onClick={() => go(-1)} tabIndex={-1}>
+        ▲
+      </button>
+      <div
+        className="wheel-viewport"
+        onPointerDown={(e) => {
+          dragging = true
+          lastY = e.clientY
+          ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+        }}
+        onPointerMove={(e) => {
+          if (!dragging) return
+          const dy = e.clientY - lastY
+          if (Math.abs(dy) >= itemH) {
+            go(dy < 0 ? 1 : -1)
+            lastY = e.clientY
+          }
+        }}
+        onPointerUp={() => {
+          dragging = false
+        }}
+      >
+        {values.map((v) => {
+          const isCur = v === value
+          const rel = values.indexOf(v) - idx
+          return (
+            <div
+              key={v}
+              className={`wheel-item${isCur ? ' cur' : ''}`}
+              style={{ transform: `translateY(${rel * itemH}px)` }}
+              onClick={() => onChange(v)}
+            >
+              {pad ? String(v).padStart(2, '0') : v}
+            </div>
+          )
+        })}
+      </div>
+      <button type="button" className="wheel-down" onClick={() => go(1)} tabIndex={-1}>
+        ▼
+      </button>
+    </div>
+  )
+}
+
 function shift(date: string, days: number): string {
   const d = new Date(date)
   d.setDate(d.getDate() + days)
@@ -64,7 +142,9 @@ export default function Timetable() {
   const [form, setForm] = useState({ classId: '', weekday: '', date: '', slotId: '', room: '' })
   const [showConsume, setShowConsume] = useState(false)
   const [consumeList, setConsumeList] = useState<Array<{ id: number; name: string; balance: number }>>([])
-  const [picked, setPicked] = useState<number[]>([])
+  const [states, setStates] = useState<Record<number, 'present' | 'leave' | 'absent'>>({})
+  const [showRoster, setShowRoster] = useState(false)
+  const [roster, setRoster] = useState<Array<{ id: number; name: string; balance: number }>>([])
   const [startMin, setStartMin] = useState(9 * 60)
   const [endMin, setEndMin] = useState(10 * 60 + 30)
 
@@ -140,7 +220,7 @@ export default function Timetable() {
         `/students?classId=${selected.classId}`
       )
       setConsumeList(d.students)
-      setPicked(d.students.map((s) => s.id))
+      setStates(Object.fromEntries(d.students.map((s) => [s.id, 'present'])))
       setShowConsume(true)
     } catch (err) {
       setFlash(err instanceof Error ? err.message : '读取学员失败')
@@ -151,19 +231,25 @@ export default function Timetable() {
   }
 
   async function submitConsume() {
-    if (!selected || picked.length === 0) {
-      setFlash('至少选一个到场的学员')
+    if (!selected || Object.keys(states).length === 0) {
+      setFlash('请先勾选学员')
       setTimeout(() => setFlash(''), 2200)
       return
     }
     setBusy(true)
     try {
-      const r = await api<{ consumed: number; skipped: string[] }>('/lessons/consume', {
-        body: { sessionId: selected.id, studentIds: picked },
-      })
+      const entries = Object.entries(states).map(([studentId, state]) => ({ studentId: Number(studentId), state }))
+      const r = await api<{ present: number; leave: number; absent: number; skipped: string[] }>(
+        '/lessons/consume',
+        { body: { sessionId: selected.id, entries } }
+      )
       setShowConsume(false)
       setSelected(null)
-      setFlash(`已为 ${r.consumed} 人消课${r.skipped.length ? `，${r.skipped.length} 人跳过` : ''}`)
+      const parts = [`到课 ${r.present} 人`]
+      if (r.leave) parts.push(`请假 ${r.leave} 人`)
+      if (r.absent) parts.push(`未到 ${r.absent} 人`)
+      if (r.skipped.length) parts.push(`跳过 ${r.skipped.length}`)
+      setFlash(parts.join(' · '))
       await load(data?.weekStart)
       setTimeout(() => setFlash(''), 2600)
     } catch (err) {
@@ -172,6 +258,31 @@ export default function Timetable() {
     } finally {
       setBusy(false)
     }
+  }
+
+  async function openRoster() {
+    if (!selected) return
+    setBusy(true)
+    try {
+      const d = await api<{ students: Array<{ id: number; name: string; balance: number }> }>(
+        `/students?classId=${selected.classId}`
+      )
+      setRoster(d.students)
+      setShowRoster(true)
+    } catch (err) {
+      setFlash(err instanceof Error ? err.message : '读取失败')
+      setTimeout(() => setFlash(''), 2400)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function setStudentState(sid: number, state: 'present' | 'leave' | 'absent') {
+    setStates((prev) => ({ ...prev, [sid]: state }))
+  }
+
+  function setAll(state: 'present' | 'leave' | 'absent') {
+    setStates(Object.fromEntries(consumeList.map((s) => [s.id, state])))
   }
 
   async function submitPlan(e: React.FormEvent) {
@@ -316,6 +427,9 @@ export default function Timetable() {
           </div>
 
           <div className="tt-actions">
+            <button className="pill small" disabled={busy} onClick={openRoster}>
+              查看学员
+            </button>
             {selected.status !== 'cancelled' && (
               <button className="pill small dark" disabled={busy} onClick={openConsume}>
                 消课
@@ -387,6 +501,26 @@ export default function Timetable() {
         </aside>
       )}
 
+      {showRoster && selected && (
+        <div className="mask" onClick={() => setShowRoster(false)}>
+          <div className="dlg" style={{ width: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div className="dlg-head">
+              <h3>{selected.className} · {roster.length} 名学员</h3>
+              <button type="button" className="tt-close" onClick={() => setShowRoster(false)}>×</button>
+            </div>
+            <div className="ck-list">
+              {roster.length === 0 && <div className="st-empty">这个班还没有学员</div>}
+              {roster.map((st) => (
+                <div key={st.id} className="ck-row">
+                  <span className="ck-nm">{st.name}</span>
+                  <span className={`ck-bal${st.balance <= 3 ? ' low' : ''}`}>{st.balance} 节</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showConsume && selected && (
         <div className="mask" onClick={() => setShowConsume(false)}>
           <div className="dlg" style={{ width: 420 }} onClick={(e) => e.stopPropagation()}>
@@ -397,41 +531,55 @@ export default function Timetable() {
               </button>
             </div>
             <p className="dlg-hint" style={{ marginTop: -6 }}>
-              勾选今天到场的学生，每人扣 1 课时。已扣过的人会自动跳过。
+              到课扣 1 课时；请假、未到不扣课时。请假会在后台标记「待补课」。
             </p>
             <div className="ck-list">
               {consumeList.length === 0 && <div className="st-empty">这个班还没有学员</div>}
               {consumeList.map((st) => {
-                const on = picked.includes(st.id)
+                const stState = states[st.id] ?? 'present'
                 return (
-                  <button
-                    type="button"
-                    key={st.id}
-                    className={`ck-row${on ? ' on' : ''}`}
-                    onClick={() =>
-                      setPicked(on ? picked.filter((id) => id !== st.id) : [...picked, st.id])
-                    }
-                  >
-                    <span className="ck-box">{on ? '✓' : ''}</span>
+                  <div key={st.id} className="ck-row">
                     <span className="ck-nm">{st.name}</span>
                     <span className={`ck-bal${st.balance <= 3 ? ' low' : ''}`}>{st.balance}</span>
-                  </button>
+                    <span className="ck-states">
+                      <button
+                        type="button"
+                        className={`ck-state present${stState === 'present' ? ' on' : ''}`}
+                        onClick={() => setStudentState(st.id, 'present')}
+                      >
+                        到课
+                      </button>
+                      <button
+                        type="button"
+                        className={`ck-state leave${stState === 'leave' ? ' on' : ''}`}
+                        onClick={() => setStudentState(st.id, 'leave')}
+                      >
+                        请假
+                      </button>
+                      <button
+                        type="button"
+                        className={`ck-state absent${stState === 'absent' ? ' on' : ''}`}
+                        onClick={() => setStudentState(st.id, 'absent')}
+                      >
+                        未到
+                      </button>
+                    </span>
+                  </div>
                 )
               })}
             </div>
             <div className="dlg-foot">
-              <button
-                type="button"
-                className="pill small"
-                onClick={() => setPicked(picked.length === consumeList.length ? [] : consumeList.map((s) => s.id))}
-              >
-                {picked.length === consumeList.length ? '全不选' : '全选'}
+              <button type="button" className="pill small" onClick={() => setAll('present')}>
+                全到课
+              </button>
+              <button type="button" className="pill small" onClick={() => setAll('leave')}>
+                全请假
               </button>
               <button type="button" className="pill small" onClick={() => setShowConsume(false)}>
                 取消
               </button>
               <button type="button" className="pill small dark" disabled={busy} onClick={submitConsume}>
-                {busy ? '提交中…' : `确认消课（${picked.length} 人）`}
+                {busy ? '提交中…' : `确认（${Object.keys(states).length} 人）`}
               </button>
             </div>
           </div>
@@ -502,7 +650,7 @@ export default function Timetable() {
 
               <div className="tr" style={{ gridColumn: '1 / -1' }}>
                 <div className="tr-head">
-                  <span>时段</span>
+                  <span>开始时间</span>
                   <b className="tr-time">{fmtMin(startMin)}</b>
                   <span className="tr-dash">—</span>
                   <b className="tr-time">{fmtMin(endMin)}</b>
@@ -511,43 +659,42 @@ export default function Timetable() {
                     {(endMin - startMin) % 60 ? ` ${(endMin - startMin) % 60} 分` : ''}
                   </span>
                 </div>
-                <div className="tr-track">
-                  <i
-                    className="tr-fill"
-                    style={{
-                      left: `${((startMin - T_MIN) / (T_MAX - T_MIN)) * 100}%`,
-                      width: `${((endMin - startMin) / (T_MAX - T_MIN)) * 100}%`,
-                    }}
-                  />
-                  <i className="tr-knob" style={{ left: `${((startMin - T_MIN) / (T_MAX - T_MIN)) * 100}%` }} />
-                  <i className="tr-knob" style={{ left: `${((endMin - T_MIN) / (T_MAX - T_MIN)) * 100}%` }} />
-                </div>
-                <input
-                  type="range"
-                  min={T_MIN}
-                  max={T_MAX}
-                  step={T_STEP}
-                  value={startMin}
-                  onChange={(e) => {
-                    const v = Number(e.target.value)
-                    setStartMin(v)
-                    if (v >= endMin) setEndMin(Math.min(T_MAX, v + T_STEP))
-                  }}
-                />
-                <input
-                  type="range"
-                  min={T_MIN}
-                  max={T_MAX}
-                  step={T_STEP}
-                  value={endMin}
-                  onChange={(e) => {
-                    const v = Number(e.target.value)
-                    setEndMin(v)
-                    if (v <= startMin) setStartMin(Math.max(T_MIN, v - T_STEP))
-                  }}
-                />
-                <div className="tr-scale">
-                  <span>07:00</span><span>12:00</span><span>17:00</span><span>22:00</span>
+                <div className="wheel-group">
+                  <div className="wheel-col">
+                    <span className="wheel-label">时</span>
+                    <WheelColumn
+                      values={Array.from({ length: 16 }, (_, i) => 7 + i)}
+                      value={Math.floor(startMin / 60)}
+                      onChange={(h) => setStartMin(h * 60 + (startMin % 60))}
+                    />
+                  </div>
+                  <div className="wheel-col">
+                    <span className="wheel-label">分</span>
+                    <WheelColumn
+                      values={[0, 15, 30, 45]}
+                      value={startMin % 60}
+                      onChange={(m) => setStartMin(Math.floor(startMin / 60) * 60 + m)}
+                      pad
+                    />
+                  </div>
+                  <span className="wheel-sep">→</span>
+                  <div className="wheel-col">
+                    <span className="wheel-label">时</span>
+                    <WheelColumn
+                      values={Array.from({ length: 16 }, (_, i) => 7 + i)}
+                      value={Math.floor(endMin / 60)}
+                      onChange={(h) => setEndMin(h * 60 + (endMin % 60))}
+                    />
+                  </div>
+                  <div className="wheel-col">
+                    <span className="wheel-label">分</span>
+                    <WheelColumn
+                      values={[0, 15, 30, 45]}
+                      value={endMin % 60}
+                      onChange={(m) => setEndMin(Math.floor(endMin / 60) * 60 + m)}
+                      pad
+                    />
+                  </div>
                 </div>
               </div>
 

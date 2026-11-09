@@ -42,6 +42,12 @@ export default function Settings() {
   } | null>(null)
   const [csvRows, setCsvRows] = useState<Array<{ name: string; className: string; courseName: string; lessons: number }>>([])
   const [importing, setImporting] = useState(false)
+  const [monthly, setMonthly] = useState<{
+    lessons: number
+    revenue: number
+    attendance: { rate: number }
+    renewals: { rate: number }
+  } | null>(null)
 
   async function load() {
     try {
@@ -60,6 +66,11 @@ export default function Settings() {
 
   useEffect(() => {
     load()
+    api<{ lessons: number; revenue: number; attendance: { rate: number }; renewals: { rate: number } }>(
+      '/stats/monthly'
+    )
+      .then(setMonthly)
+      .catch(() => {})
   }, [])
 
   function toast(msg: string) {
@@ -279,26 +290,49 @@ export default function Settings() {
   return (
     <div className="st-wrap" style={{ flexDirection: 'column', gap: 12, overflow: 'auto' }}>
       <div className="set-grid">
-        {/* 账号 */}
-        <section className="set-card">
-          <h3>账号</h3>
-          <p className="set-desc">本机账号，数据保存在这台电脑上，不上传。</p>
-          <div className="set-user">
-            <span className="st-av">
-              <span style={{ fontSize: 16 }}>{(user?.displayName ?? '?').slice(0, 1)}</span>
-            </span>
-            <div>
-              <b>{user?.displayName}</b>
-              <small>@{user?.username}</small>
+        {/* 账号（横跨整行） */}
+        <section className="set-card set-account">
+          <div className="set-account-main">
+            <h3>账号</h3>
+            <p className="set-desc">本机账号，数据保存在这台电脑上，不上传。</p>
+            <div className="set-user">
+              <span className="st-av">
+                <span style={{ fontSize: 16 }}>{(user?.displayName ?? '?').slice(0, 1)}</span>
+              </span>
+              <div>
+                <b>{user?.displayName}</b>
+                <small>@{user?.username}</small>
+              </div>
+              <button className="pill small" onClick={() => logout()} style={{ marginLeft: 'auto', height: 32 }}>
+                退出登录
+              </button>
             </div>
-            <button className="pill small" onClick={() => logout()} style={{ marginLeft: 'auto', height: 32 }}>
-              退出登录
-            </button>
           </div>
+
+          {monthly && (
+            <div className="set-account-stats">
+              <div>
+                <b>{monthly.attendance.rate}%</b>
+                <span>本月到课率</span>
+              </div>
+              <div>
+                <b>{monthly.renewals.rate}%</b>
+                <span>续费率</span>
+              </div>
+              <div>
+                <b>{monthly.lessons}</b>
+                <span>总上课课时</span>
+              </div>
+              <div>
+                <b>¥{monthly.revenue.toLocaleString('zh-CN')}</b>
+                <span>本月业绩</span>
+              </div>
+            </div>
+          )}
         </section>
 
         {/* 提醒 */}
-        <section className="set-card">
+        <section className="set-card set-full">
           <h3>提醒设置</h3>
           <p className="set-desc">低于阈值的学员会在今日页和学员页标红。</p>
           <form className="set-form" onSubmit={saveConfig}>

@@ -195,6 +195,24 @@ teacher-workbench/
   解决：`scripts/set-icon.cjs` 用 `resedit` 直接写 PE 资源（图标 + ProductName），已固化进 `pack:slim`
 - 验证方式：读回 exe 的 VersionInfo，ProductName 应为「教培工作台」
 
+## 班级管理 & 消课三态（v1.5）
+
+- 班级：`GET /api/classes`（含每班学员名单+未分班学员）、`POST /api/classes`（建班）、
+  `POST /api/classes/:id/students`（加人/转班）、`DELETE /api/classes/:id/students/:sid`（移除，只停用报名关系不删学员）
+- 转班逻辑：加人时把该学员旧的 active 报名置 inactive，再插一条新报名
+- 课表详情加「查看学员」：`/api/students?classId=` 直接弹名单，不进消课
+- 消课三态：`/api/lessons/consume` 改收 `entries: [{studentId, state}]`，
+  present 扣课时、leave 记 adjust(0) 标"待补课"、absent 只记考勤不扣
+- **坑**：`attendance` 表无 id 列（复合主键 session_id+student_id），查重用了 `SELECT id` 报 "no such column: id"，改 `SELECT session_id`
+
+### 排课时间滚轮
+- 原双滑块改为 iOS 风格滚轮（WheelColumn 组件），开始/结束各 时+分 两列
+- 鼠标滚轮 + 拖拽 + 上下箭头 + 点击项均可滚动，中间高亮，`transition: transform` 平滑
+
+### 设置页账号卡片
+- 账号卡片 `grid-column:1/-1` 横跨整行，右侧放本月到课率/续费率/总课时/业绩（读 /api/stats/monthly）
+- 提醒设置卡片同样横跨，表单字段横向排布（set-full）
+
 ## 动效（v1.4 语义化增强）
 
 原则：工具型应用要"安静的活力"，动效必须**服务语义**（告警、时间流动、数据变化），不做纯装饰。
@@ -265,6 +283,13 @@ POST /api/import/cancel → 反悔，删掉 pending 文件
 `pickPort()` 从 4600 开始探测，被占用才顺延。
 
 ## 变更记录
+
+### 2026-11-09 · v1.5（班级/消课三态/滚轮/账号卡片）
+- 班级管理（建班、调学生、转班）
+- 课表查看学员名单
+- 消课三态：到课/请假/未到
+- 排课时间改滚轮
+- 设置页账号卡片横跨+本月数据
 
 ### 2026-11-09 · v1.4（语义化动效）
 - 数字滚动（今日页 + 学员页统计/余额）

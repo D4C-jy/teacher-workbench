@@ -342,6 +342,123 @@ app.get('/api/meta', requireAuth, (_req, res) => {
   })
 })
 
+/* ---------------- 班级管理 ---------------- */
+
+/** 班级列表：含人数、课程、学生名单 */
+app.get('/api/classes', requireAuth, (_req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT cl.id, cl.name, cl.course_id, cl.capacity, c.name AS course_name,
+              (SELECT COUNT(*) FROM enrollments e WHERE e.class_id = cl.id AND e.status = 'active') AS student_count
+         FROM classes cl JOIN courses c ON c.id = cl.course_id ORDER BY cl.id`
+    )
+    .all()
+
+  // 每个班的学员名单
+  const students = db
+    .prepare(
+      `SELECT e.class_id, s.id, s.name,
+              ROUND(COALESCE((SELECT SUM(delta) FROM lesson_ledger l WHERE l.enrollment_id = e.id), 0), 2) AS balance
+         FROM enrollments e JOIN students s ON s.id = e.student_id
+        WHERE e.status = 'active' AND s.archived = 0
+        ORDER BY e.class_id, s.name`
+    )
+    .all()
+
+  const byClass = new Map<number, Array<{ id: number; name: string; balance: number }>>()
+  for (const st of students as Array<{ class_id: number; id: number; name: string; balance: number }>) {
+    if (!byClass.has(st.class_id)) byClass.set(st.class_id, [])
+    byClass.get(st.class_id)!.push({ id: st.id, name: st.name, balance: st.balance })
+  }
+
+  res.json({
+    classes: (rows as Array<{ id: number; name: string; course_id: number; capacity: number; course_name: string; student_count: number }>).map(
+      (c) => ({ ...c, students: byClass.get(c.id) ?? [] })
+    ),
+    courses: db.prepare('SELECT id, name FROM courses ORDER BY id').all(),
+    // 未分班学员（可用于调班）
+    unassigned: db
+      .prepare(
+        `SELECT s.id, s.name FROM students s
+          WHERE s.archived = 0
+            AND NOT EXISTS (SELECT 1 FROM enrollments e WHERE e.student_id = s.id AND e.status = 'active')
+          ORDER BY s.name`
+      )
+      .all(),
+  })
+})
+
+/** 新建班级 */
+app.post('/api/classes', requireAuth, (req, res) => {
+  const name = String(req.body?.name ?? '').trim()
+  const courseId = Number(req.body?.courseId || 0)
+  const capacity = Number(req.body?.capacity || 12)
+
+  if (!name) return res.status(400).json({ error: '请填班级名称' })
+  if (!courseId) return res.status(400).json({ error: '请选择课程' })
+
+  const dup = db.prepare('SELECT id FROM classes WHERE name = ?').get(name)
+  if (dup) return res.status(409).json({ error: '这个班级名已经存在' })
+
+  const info = db
+    .prepare('INSERT INTO classes (course_id, name, capacity) VALUES (?, ?, ?)')
+    .run(courseId, name, capacity)
+  res.json({ ok: true, id: Number(info.lastInsertRowid) })
+})
+
+/** 添加学生到班级（从别班转来 / 新建报名） */
+app.post('/api/classes/:id/students', requireAuth, (req, res) => {
+  const classId = Number(req.params.id)
+  const studentId = Number(req.body?.studentId)
+  const studentName = String(req.body?.name ?? '').trim()
+
+  const cls = db
+    .prepare('SELECT id, course_id FROM classes WHERE id = ?')
+    .get(classId) as { id: number; course_id: number } | undefined
+  if (!cls) return res.status(404).json({ error: '班级不存在' })
+
+  let sid = studentId
+  if (!sid && studentName) {
+    // 新学员：直接建
+    const exist = db.prepare('SELECT id FROM students WHERE name = ? AND archived = 0').get(studentName) as
+      | { id: number }
+      | undefined
+    if (exist) {
+      sid = exist.id
+    } else {
+      sid = Number(db.prepare('INSERT INTO students (name) VALUES (?)').run(studentName).lastInsertRowid)
+    }
+  }
+  if (!sid) return res.status(400).json({ error: '请选择或输入学员' })
+
+  // 已在这个班？
+  const already = db
+    .prepare("SELECT id FROM enrollments WHERE student_id = ? AND class_id = ? AND status = 'active'")
+    .get(sid, classId)
+  if (already) return res.status(409).json({ error: '这个学员已经在这个班了' })
+
+  // 是否在别的班（转班：把旧的置为 inactive）
+  tx(() => {
+    db.prepare("UPDATE enrollments SET status = 'inactive' WHERE student_id = ? AND status = 'active'").run(sid)
+    db.prepare(
+      'INSERT INTO enrollments (student_id, class_id, course_id, purchased_lessons, bonus_lessons) VALUES (?, ?, ?, 0, 0)'
+    ).run(sid, classId, cls.course_id)
+  })
+
+  res.json({ ok: true })
+})
+
+/** 从班级移除学员（不删学生，只解除报名关系） */
+app.delete('/api/classes/:id/students/:studentId', requireAuth, (req, res) => {
+  const classId = Number(req.params.id)
+  const studentId = Number(req.params.studentId)
+  const info = db
+    .prepare("UPDATE enrollments SET status = 'inactive' WHERE class_id = ? AND student_id = ? AND status = 'active'")
+    .run(classId, studentId)
+  if (Number(info.changes) === 0) return res.status(404).json({ error: '没有找到这个报名关系' })
+  res.json({ ok: true })
+})
+
 app.get('/api/timetable', requireAuth, (req, res) => {
   const raw = String(req.query.start || '')
   const weekStart = mondayOf(raw || todayStr())
@@ -655,13 +772,20 @@ app.post('/api/students/:id/recharge', requireAuth, (req, res) => {
 
 app.post('/api/lessons/consume', requireAuth, (req, res) => {
   const sessionId = Number(req.body?.sessionId)
-  const studentIds: number[] = Array.isArray(req.body?.studentIds)
-    ? req.body.studentIds.map((n: unknown) => Number(n)).filter((n: number) => n > 0)
-    : []
   const per = Number(req.body?.lessons ?? 1) || 1
+  // 每个学生一个考勤状态：present 到课(扣) / leave 请假(不扣) / absent 未到(不扣)
+  const entries: Array<{ studentId: number; state: string }> = Array.isArray(req.body?.entries)
+    ? req.body.entries
+        .filter((e: unknown) => e && typeof e === 'object')
+        .map((e: any) => ({
+          studentId: Number(e?.studentId),
+          state: ['present', 'leave', 'absent'].includes(e?.state) ? e.state : 'present',
+        }))
+        .filter((e: { studentId: number }) => e.studentId > 0)
+    : []
 
-  if (!sessionId || studentIds.length === 0) {
-    return res.status(400).json({ error: '请选择课次和到场学员' })
+  if (!sessionId || entries.length === 0) {
+    return res.status(400).json({ error: '请选择课次和学员考勤' })
   }
 
   const session = db.prepare('SELECT id, date, class_id, status FROM sessions WHERE id = ?').get(sessionId) as
@@ -670,40 +794,55 @@ app.post('/api/lessons/consume', requireAuth, (req, res) => {
   if (!session) return res.status(404).json({ error: '课次不存在' })
   if (session.status === 'cancelled') return res.status(400).json({ error: '这节课已停课，不能消课' })
 
-  const done: number[] = []
-  const skipped: string[] = []
+  const result = { present: 0, leave: 0, absent: 0, skipped: [] as string[] }
 
   tx(() => {
-    for (const sid of studentIds) {
+    for (const entry of entries) {
+      const sid = entry.studentId
       const enr = db
         .prepare("SELECT id FROM enrollments WHERE student_id = ? AND class_id = ? AND status = 'active' LIMIT 1")
         .get(sid, session.class_id) as { id: number } | undefined
       if (!enr) {
-        skipped.push(`学员 ${sid} 不在这个班`)
+        result.skipped.push(`学员 ${sid} 不在这个班`)
         continue
       }
       const dup = db
-        .prepare("SELECT id FROM lesson_ledger WHERE enrollment_id = ? AND session_id = ? AND type = 'consume'")
-        .get(enr.id, sessionId)
+        .prepare('SELECT session_id FROM attendance WHERE session_id = ? AND student_id = ?')
+        .get(sessionId, sid)
       if (dup) {
-        skipped.push(`学员 ${sid} 这节课已扣过`)
+        result.skipped.push(`学员 ${sid} 这节课已记录过`)
         continue
       }
-      db.prepare(
-        "INSERT INTO lesson_ledger (enrollment_id, type, delta, session_id, occurred_at, reason) VALUES (?, 'consume', ?, ?, ?, ?)"
-      ).run(enr.id, -per, sessionId, `${session.date} 消课`, `课次 #${sessionId}`)
-      db.prepare('INSERT OR REPLACE INTO attendance (session_id, student_id, state, lessons) VALUES (?, ?, ?, ?)').run(
+
+      // 写考勤
+      db.prepare('INSERT INTO attendance (session_id, student_id, state, lessons) VALUES (?, ?, ?, ?)').run(
         sessionId,
         sid,
-        'present',
-        per
+        entry.state,
+        entry.state === 'present' ? per : 0
       )
-      done.push(sid)
+
+      // 只有"到课"才扣课时
+      if (entry.state === 'present') {
+        db.prepare(
+          "INSERT INTO lesson_ledger (enrollment_id, type, delta, session_id, occurred_at, reason) VALUES (?, 'consume', ?, ?, ?, ?)"
+        ).run(enr.id, -per, sessionId, `${session.date} 消课`, `课次 #${sessionId}`)
+      }
+      // 请假：记一条 0 额度的记录，reason 标注，供补课提醒
+      if (entry.state === 'leave') {
+        db.prepare(
+          "INSERT INTO lesson_ledger (enrollment_id, type, delta, session_id, occurred_at, reason) VALUES (?, 'adjust', 0, ?, ?, ?)"
+        ).run(enr.id, sessionId, `${session.date} 请假`, '待补课')
+      }
+
+      if (entry.state === 'present') result.present++
+      else if (entry.state === 'leave') result.leave++
+      else result.absent++
     }
     db.prepare("UPDATE sessions SET status = 'done' WHERE id = ?").run(sessionId)
   })
 
-  res.json({ ok: true, consumed: done.length, skipped })
+  res.json({ ok: true, present: result.present, leave: result.leave, absent: result.absent, skipped: result.skipped })
 })
 
 app.get('/api/export/students.csv', requireAuth, (_req, res) => {

@@ -34,6 +34,16 @@ const NAV = [
     ),
   },
   {
+    to: '/classes',
+    label: '班级',
+    icon: (
+      <>
+        <rect x="3" y="5" width="18" height="14" rx="2" />
+        <path d="M9 5v14M15 5v14" />
+      </>
+    ),
+  },
+  {
     to: '/equipment',
     label: '器材',
     icon: (
@@ -68,6 +78,7 @@ const TABS = [
   { to: '/', label: '今日' },
   { to: '/timetable', label: '课表' },
   { to: '/students', label: '学员 · 课时' },
+  { to: '/classes', label: '班级' },
   { to: '/equipment', label: '器材' },
   { to: '/profile', label: '个人中心' },
   { to: '/settings', label: '设置' },

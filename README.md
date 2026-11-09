@@ -13,10 +13,11 @@
 ### 方式一：安装包（日常使用）
 
 ```
-release-app/TeacherWorkbench-Setup-0.1.0.exe
+release-slim/TeacherWorkbench-Setup-0.1.0.exe     102 MB
 ```
 
 双击安装，可选安装目录，装完桌面和开始菜单会有「教培工作台」图标。
+装完占约 287 MB（其中 250 MB 是 Electron 内置的 Chromium，无法再压）。
 
 > **首次运行会被 Windows 拦一次**：因为没有购买代码签名证书，会提示"Windows 已保护你的电脑"。
 > 点 **更多信息 → 仍要运行** 即可，之后不再提示。
@@ -142,7 +143,7 @@ npm run dev        # API(4317) + Vite(5173)，浏览器自动打开
 npm run build      # 前端生产构建 -> dist/
 npm run build:all  # 前端 + 后端单文件打包 -> dist-server/
 npm run app        # 用 Electron 直接跑（不打包）
-npm run dist       # 出安装包 -> release-app/
+npm run pack:slim  # 出精简安装包 -> release-slim/（推荐，102MB）
 ```
 
 ### 技术栈
@@ -176,6 +177,25 @@ teacher-workbench/
 ├── docs/HANDOFF.md         交接文档（每次改动都更新）
 └── data/workbench.db       数据库（自动生成）
 ```
+
+### 打包说明
+
+`npm run pack:slim` 做的事情：
+
+1. 前端构建 + 后端 esbuild 打成单文件
+2. 组装 `build-slim/win-unpacked`：只带 **zh-CN / en-US** 两个语言包（原版有 55 个，占 49MB），
+   并去掉 `dxcompiler.dll`（25MB，仅 WebGPU/D3D12 需要，普通界面用不到）
+3. 调 `electron-builder --prepackaged` 直接出 NSIS 安装包
+
+体积对比：
+
+| | 完整打包 | 精简打包 |
+|---|---|---|
+| 解压后 | 359 MB | **287 MB** |
+| 安装包 | 116 MB | **102 MB** |
+
+> 在普通机器上也可以直接 `npm run dist`（完整打包，输出到 `release-app/`）。
+> 但在本机沙箱环境里 electron-builder 解压时会因为目录重命名被拦而失败，所以用 `pack:slim`。
 
 ### 开发便利参数
 
@@ -216,6 +236,7 @@ API 没起来。看命令行窗口报错，或单独跑 `npm run dev:server` 排
 
 - 安装包**未签名**，首次运行会被 SmartScreen 提示一次
 - 应用图标还是 Electron 默认图标
+- 安装包已裁掉 53 种语言包和 `dxcompiler.dll`；如果某台机器上出现界面白屏，说明该机 GPU 走 D3D12 且缺该库，需换回完整打包
 - 平面图按 1120px 以上宽度设计，窗口太窄会挤
 - 二维码扫出来是器材编号纯文本，暂不能跳转到详情
 - 多账号共享同一份数据，没有做权限隔离
@@ -226,6 +247,7 @@ API 没起来。看命令行窗口报错，或单独跑 `npm run dev:server` 排
 
 | 版本 | 内容 |
 |---|---|
+| v0.8 | 安装包瘦身：359MB → 287MB（解压），116MB → 102MB（安装包） |
 | v0.7 | 设置页、二维码标签、Electron 安装包 |
 | v0.6 | 人物层次与呼吸动效、移除实操区、器材改为老师/机构取用 |
 | v0.5 | 器材台账与借还、字体定稿 |

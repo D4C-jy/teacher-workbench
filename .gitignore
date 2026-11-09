@@ -3,6 +3,8 @@ dist/
 dist-server/
 release/
 release-app/
+release-slim/
+build-slim/
 data/
 *.log
 .DS_Store

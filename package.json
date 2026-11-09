@@ -14,7 +14,8 @@
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=cjs --outfile=dist-server/index.cjs",
     "build:all": "npm run build && npm run build:server",
     "app": "npm run build:all && electron .",
-    "dist": "npm run build:all && electron-builder --win nsis"
+    "dist": "npm run build:all && electron-builder --win nsis",
+    "pack:slim": "npm run build:all && node scripts/pack-slim.mjs"
   },
   "dependencies": {
     "express": "^4.21.2",
@@ -44,7 +45,7 @@
     "appId": "com.teacher.workbench",
     "productName": "教培工作台",
     "directories": {
-      "output": "release-app"
+      "output": "release-slim"
     },
     "files": [
       "dist/**/*",
@@ -71,7 +72,8 @@
       "createStartMenuShortcut": true,
       "shortcutName": "教培工作台",
       "artifactName": "TeacherWorkbench-Setup-${version}.${ext}"
-    }
+    },
+    "compression": "maximum"
   },
   "author": "Teacher Workbench"
 }

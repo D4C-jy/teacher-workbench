@@ -188,6 +188,18 @@ teacher-workbench/
 
 ## 变更记录
 
+### 2026-11-09 · v0.8（体积优化）
+- Electron 运行时裁剪：locales 从 55 个语言包只留 `zh-CN` / `en-US`（省 47.8MB），
+  去掉 `dxcompiler.dll`（25.7MB）与 `electron_wer.dll`
+- 结果：解压 359MB → **287MB**，安装包 116MB → **102MB**
+- 新增 `scripts/pack-slim.mjs` 与 `npm run pack:slim`，把组装 + 打包固化成一条命令
+- 已裁两项的副作用与回退方式见 README「已知限制」
+- **无法再压的部分**：`electron.exe` 249MB（Chromium 本体）、`resources.pak` 13MB、`icudtl.dat` 11MB
+
+如果将来真的需要 10MB 级别，只有换 Tauri（安装包 3–10MB）：
+需要装 Rust + MSVC Build Tools（约 3–4GB），并把数据层从 `node:sqlite` 换成 sidecar 或 Rust 实现，
+是一次较大的重写，不建议在现有版本上做。
+
 ### 2026-11-09 · v0.7
 - 设置页：账号、提醒阈值（接入 `/api/today` 与 `/api/students`）、到期天数、时段增删、数据库路径
 - 备份：`GET /api/backup` 用 `VACUUM INTO` 快照下载

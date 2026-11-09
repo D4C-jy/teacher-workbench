@@ -309,10 +309,10 @@ export function seedIfEmpty() {
       run('INSERT INTO attendance (session_id, student_id, state, lessons) VALUES (?, ?, ?, ?)', ses1, st.student_id, 'present', 1)
     }
 
-    const liming = get<{ id: number }>('SELECT id FROM students WHERE name = ?', '李明')
+    // 器材是老师/机构取用，不挂学生
     run(
-      'INSERT INTO equipment_loans (equipment_id, borrower_name, student_id, lent_at, due_at, condition_out) VALUES (?, ?, ?, ?, ?, ?)',
-      eq4, '李明', liming?.id ?? null, `${today} 08:50`, `${today} 10:30`, '正常'
+      'INSERT INTO equipment_loans (equipment_id, borrower_name, lent_at, due_at, condition_out, note) VALUES (?, ?, ?, ?, ?, ?)',
+      eq4, '王老师', `${today} 08:50`, `${today} 10:30`, '正常', '上课'
     )
 
     run('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)', 'seeded_at', today)

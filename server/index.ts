@@ -797,10 +797,17 @@ app.get('/api/equipment', requireAuth, (_req, res) => {
 
   const openLoans = db
     .prepare(
-      `SELECT l.equipment_id, l.borrower_name, l.lent_at, l.due_at, l.condition_out
+      `SELECT l.equipment_id, l.borrower_name, l.lent_at, l.due_at, l.condition_out, l.note
          FROM equipment_loans l WHERE l.returned_at IS NULL`
     )
-    .all() as Array<{ equipment_id: number; borrower_name: string; lent_at: string; due_at: string | null; condition_out: string | null }>
+    .all() as Array<{
+    equipment_id: number
+    borrower_name: string
+    lent_at: string
+    due_at: string | null
+    condition_out: string | null
+    note: string | null
+  }>
   const loanMap = new Map(openLoans.map((l) => [l.equipment_id, l]))
 
   res.json({
@@ -814,7 +821,13 @@ app.get('/api/equipment', requireAuth, (_req, res) => {
         note: e.note,
         purchasedAt: e.purchased_at,
         loan: loan
-          ? { borrower: loan.borrower_name, lentAt: loan.lent_at, dueAt: loan.due_at, conditionOut: loan.condition_out }
+          ? {
+              borrower: loan.borrower_name,
+              lentAt: loan.lent_at,
+              dueAt: loan.due_at,
+              conditionOut: loan.condition_out,
+              purpose: loan.note,
+            }
           : null,
       }
     }),
@@ -845,12 +858,11 @@ app.post('/api/equipment', requireAuth, (req, res) => {
 app.post('/api/equipment/:id/lend', requireAuth, (req, res) => {
   const id = Number(req.params.id)
   const borrower = String(req.body?.borrowerName ?? '').trim()
-  const studentId = req.body?.studentId ? Number(req.body.studentId) : null
-  const sessionId = req.body?.sessionId ? Number(req.body.sessionId) : null
+  const purpose = String(req.body?.purpose ?? '').trim() || null
   const dueAt = req.body?.dueAt ? String(req.body.dueAt) : null
   const conditionOut = String(req.body?.conditionOut ?? '').trim() || null
 
-  if (!borrower) return res.status(400).json({ error: '请填借用人' })
+  if (!borrower) return res.status(400).json({ error: '请填取用人' })
 
   const eq = db.prepare('SELECT id, status FROM equipment WHERE id = ?').get(id) as
     | { id: number; status: string }
@@ -861,8 +873,8 @@ app.post('/api/equipment/:id/lend', requireAuth, (req, res) => {
 
   tx(() => {
     db.prepare(
-      "INSERT INTO equipment_loans (equipment_id, borrower_name, student_id, session_id, lent_at, due_at, condition_out) VALUES (?, ?, ?, ?, datetime('now','localtime'), ?, ?)"
-    ).run(id, borrower, studentId, sessionId, dueAt, conditionOut)
+      "INSERT INTO equipment_loans (equipment_id, borrower_name, lent_at, due_at, condition_out, note) VALUES (?, ?, datetime('now','localtime'), ?, ?, ?)"
+    ).run(id, borrower, dueAt, conditionOut, purpose)
     db.prepare("UPDATE equipment SET status = 'lent' WHERE id = ?").run(id)
   })
 
@@ -899,7 +911,7 @@ app.get('/api/equipment/:id/loans', requireAuth, (req, res) => {
   const id = Number(req.params.id)
   const rows = db
     .prepare(
-      `SELECT id, borrower_name, lent_at, due_at, returned_at, condition_out, condition_in
+      `SELECT id, borrower_name, lent_at, due_at, returned_at, condition_out, condition_in, note
          FROM equipment_loans WHERE equipment_id = ? ORDER BY lent_at DESC, id DESC LIMIT 50`
     )
     .all(id)

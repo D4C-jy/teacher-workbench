@@ -9,7 +9,7 @@ interface EqItem {
   status: 'in_stock' | 'lent' | 'repair' | 'retired'
   note: string | null
   purchasedAt: string | null
-  loan: { borrower: string; lentAt: string; dueAt: string | null; conditionOut: string | null } | null
+  loan: { borrower: string; lentAt: string; dueAt: string | null; conditionOut: string | null; purpose: string | null } | null
 }
 
 interface Loan {
@@ -20,11 +20,12 @@ interface Loan {
   returned_at: string | null
   condition_out: string | null
   condition_in: string | null
+  note: string | null
 }
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   in_stock: { label: '在库', cls: 'ok' },
-  lent: { label: '借出', cls: 'lent' },
+  lent: { label: '取用中', cls: 'lent' },
   repair: { label: '维修', cls: 'repair' },
   retired: { label: '停用', cls: 'off' },
 }
@@ -32,7 +33,6 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 export default function Equipment() {
   const [items, setItems] = useState<EqItem[]>([])
   const [summary, setSummary] = useState({ total: 0, inStock: 0, lent: 0, repair: 0, retired: 0 })
-  const [students, setStudents] = useState<Array<{ id: number; name: string }>>([])
   const [error, setError] = useState('')
   const [flash, setFlash] = useState('')
   const [busy, setBusy] = useState(false)
@@ -43,7 +43,7 @@ export default function Equipment() {
   const [history, setHistory] = useState<Loan[]>([])
   const [showAdd, setShowAdd] = useState(false)
 
-  const [lendForm, setLendForm] = useState({ borrower: '', dueAt: '', condition: '' })
+  const [lendForm, setLendForm] = useState({ keeper: '', purpose: '上课', dueAt: '', condition: '' })
   const [returnForm, setReturnForm] = useState({ condition: '', toRepair: false })
   const [addForm, setAddForm] = useState({ code: '', model: '', studentId: '' })
 
@@ -60,9 +60,6 @@ export default function Equipment() {
 
   useEffect(() => {
     load()
-    api<{ students: Array<{ id: number; name: string }> }>('/students')
-      .then((d) => setStudents(d.students))
-      .catch(() => {})
   }, [load])
 
   function toast(msg: string) {
@@ -73,23 +70,23 @@ export default function Equipment() {
   async function doLend(e: React.FormEvent) {
     e.preventDefault()
     if (!lendTarget) return
-    if (!lendForm.borrower.trim()) return toast('请填借用人')
+    if (!lendForm.keeper.trim()) return toast('请填取用人')
     setBusy(true)
     try {
       await api(`/equipment/${lendTarget.id}/lend`, {
         body: {
-          borrowerName: lendForm.borrower.trim(),
-          studentId: addForm.studentId || undefined,
+          borrowerName: lendForm.keeper.trim(),
+          purpose: lendForm.purpose || undefined,
           dueAt: lendForm.dueAt || undefined,
           conditionOut: lendForm.condition || undefined,
         },
       })
       setLendTarget(null)
-      setLendForm({ borrower: '', dueAt: '', condition: '' })
+      setLendForm({ keeper: '', purpose: '上课', dueAt: '', condition: '' })
       await load()
-      toast('已登记借出')
+      toast('已登记取用')
     } catch (err) {
-      toast(err instanceof Error ? err.message : '借出失败')
+      toast(err instanceof Error ? err.message : '登记失败')
     } finally {
       setBusy(false)
     }
@@ -106,9 +103,9 @@ export default function Equipment() {
       setReturnTarget(null)
       setReturnForm({ condition: '', toRepair: false })
       await load()
-      toast(returnForm.toRepair ? '已归还，转入维修' : '已归还入库')
+      toast(returnForm.toRepair ? '已交回，转入维修' : '已交回入库')
     } catch (err) {
-      toast(err instanceof Error ? err.message : '归还失败')
+      toast(err instanceof Error ? err.message : '交回失败')
     } finally {
       setBusy(false)
     }
@@ -166,7 +163,7 @@ export default function Equipment() {
               <b>{summary.inStock}</b>在库
             </span>
             <span>
-              <b className="warn">{summary.lent}</b>借出
+              <b className="warn">{summary.lent}</b>取用中
             </span>
             <span>
               <b className="amber">{summary.repair}</b>维修
@@ -194,11 +191,11 @@ export default function Equipment() {
 
                 {it.loan ? (
                   <div className="eq-loan">
-                    <span>借给</span>
+                    <span>{it.loan.purpose ?? '取用中'} · 取用人</span>
                     <b>{it.loan.borrower}</b>
                     <small>
                       {it.loan.lentAt.slice(5, 16)}
-                      {it.loan.dueAt ? ` · 应还 ${it.loan.dueAt.slice(5, 16)}` : ''}
+                      {it.loan.dueAt ? ` · 应交回 ${it.loan.dueAt.slice(5, 16)}` : ''}
                     </small>
                   </div>
                 ) : (
@@ -216,17 +213,17 @@ export default function Equipment() {
                         setReturnForm({ condition: '', toRepair: false })
                       }}
                     >
-                      归还
+                      交回
                     </button>
                   ) : it.status === 'in_stock' ? (
                     <button
                       className="eq-btn primary"
                       onClick={() => {
                         setLendTarget(it)
-                        setLendForm({ borrower: '', dueAt: '', condition: '' })
+                        setLendForm({ keeper: '', purpose: '上课', dueAt: '', condition: '' })
                       }}
                     >
-                      借出
+                      取出
                     </button>
                   ) : (
                     <button className="eq-btn" disabled>
@@ -248,25 +245,32 @@ export default function Equipment() {
         <div className="mask" onClick={() => setLendTarget(null)}>
           <form className="dlg" style={{ width: 420 }} onClick={(e) => e.stopPropagation()} onSubmit={doLend}>
             <div className="dlg-head">
-              <h3>借出 {lendTarget.code}</h3>
+              <h3>取出 {lendTarget.code}</h3>
               <button type="button" className="tt-close" onClick={() => setLendTarget(null)}>
                 ×
               </button>
             </div>
             <div className="dlg-body" style={{ gridTemplateColumns: '1fr' }}>
               <label>
-                借用人
+                取用人（老师 / 机构）
                 <input
-                  list="student-names"
-                  value={lendForm.borrower}
-                  onChange={(e) => setLendForm({ ...lendForm, borrower: e.target.value })}
-                  placeholder="学生姓名或同事名字"
+                  value={lendForm.keeper}
+                  onChange={(e) => setLendForm({ ...lendForm, keeper: e.target.value })}
+                  placeholder="例如 王老师 / 校区前台"
                 />
-                <datalist id="student-names">
-                  {students.map((s) => (
-                    <option key={s.id} value={s.name} />
-                  ))}
-                </datalist>
+              </label>
+              <label>
+                用途
+                <select
+                  value={lendForm.purpose}
+                  onChange={(e) => setLendForm({ ...lendForm, purpose: e.target.value })}
+                >
+                  <option value="上课">上课</option>
+                  <option value="外拍">外拍 / 活动</option>
+                  <option value="送修">送修</option>
+                  <option value="调拨">调拨到其他校区</option>
+                  <option value="其他">其他</option>
+                </select>
               </label>
               <label>
                 预计归还（可留空）
@@ -277,7 +281,7 @@ export default function Equipment() {
                 />
               </label>
               <label>
-                借出时机况（可留空）
+                取出时机况（可留空）
                 <input
                   value={lendForm.condition}
                   onChange={(e) => setLendForm({ ...lendForm, condition: e.target.value })}
@@ -290,7 +294,7 @@ export default function Equipment() {
                 取消
               </button>
               <button type="submit" className="pill small dark" disabled={busy}>
-                {busy ? '保存中…' : '确认借出'}
+                {busy ? '保存中…' : '确认取出'}
               </button>
             </div>
           </form>
@@ -302,14 +306,14 @@ export default function Equipment() {
         <div className="mask" onClick={() => setReturnTarget(null)}>
           <form className="dlg" style={{ width: 400 }} onClick={(e) => e.stopPropagation()} onSubmit={doReturn}>
             <div className="dlg-head">
-              <h3>归还 {returnTarget.code}</h3>
+              <h3>交回 {returnTarget.code}</h3>
               <button type="button" className="tt-close" onClick={() => setReturnTarget(null)}>
                 ×
               </button>
             </div>
             <div className="dlg-body" style={{ gridTemplateColumns: '1fr' }}>
               <label>
-                归还时机况（可留空）
+                交回时机况（可留空）
                 <input
                   value={returnForm.condition}
                   onChange={(e) => setReturnForm({ ...returnForm, condition: e.target.value })}
@@ -322,7 +326,7 @@ export default function Equipment() {
                   checked={returnForm.toRepair}
                   onChange={(e) => setReturnForm({ ...returnForm, toRepair: e.target.checked })}
                 />
-                归还后转入维修
+                交回后转入维修
               </label>
             </div>
             <div className="dlg-foot">
@@ -330,7 +334,7 @@ export default function Equipment() {
                 取消
               </button>
               <button type="submit" className="pill small dark" disabled={busy}>
-                {busy ? '保存中…' : '确认归还'}
+                {busy ? '保存中…' : '确认交回'}
               </button>
             </div>
           </form>
@@ -383,7 +387,7 @@ export default function Equipment() {
         <div className="mask" onClick={() => setHistoryTarget(null)}>
           <div className="dlg" style={{ width: 460 }} onClick={(e) => e.stopPropagation()}>
             <div className="dlg-head">
-              <h3>{historyTarget.code} 的借还记录</h3>
+              <h3>{historyTarget.code} 的取用记录</h3>
               <button type="button" className="tt-close" onClick={() => setHistoryTarget(null)}>
                 ×
               </button>
@@ -396,13 +400,14 @@ export default function Equipment() {
                   <div>
                     <b>{l.borrower_name}</b>
                     <small>
-                      {l.lent_at.slice(0, 16)} 借出
-                      {l.returned_at ? ` · ${l.returned_at.slice(0, 16)} 归还` : ' · 未归还'}
+                      {l.note ? `${l.note} · ` : ''}
+                      {l.lent_at.slice(0, 16)} 取出
+                      {l.returned_at ? ` · ${l.returned_at.slice(0, 16)} 交回` : ' · 未交回'}
                     </small>
                     {(l.condition_out || l.condition_in) && (
                       <em>
-                        {l.condition_out ? `借出：${l.condition_out}` : ''}
-                        {l.condition_in ? `　归还：${l.condition_in}` : ''}
+                        {l.condition_out ? `取出：${l.condition_out}` : ''}
+                        {l.condition_in ? `　交回：${l.condition_in}` : ''}
                       </em>
                     )}
                   </div>

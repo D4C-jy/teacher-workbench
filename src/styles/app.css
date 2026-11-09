@@ -245,8 +245,8 @@ button { cursor: pointer; }
 .rooms {
   flex: 1;
   display: grid;
-  grid-template-columns: 2fr 1.05fr .9fr;
-  grid-template-rows: 1.55fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1.45fr 1fr;
   gap: 9px;
   min-height: 0;
 }
@@ -261,7 +261,7 @@ button { cursor: pointer; }
 .room.cream { background: var(--cream); }
 .room.pink { background: var(--pink); }
 .room.gray { background: var(--gray); }
-.room.a { grid-column: 1; grid-row: 1; }
+.room.a { grid-column: 1 / 3; grid-row: 1; }
 .room.b { grid-column: 2; grid-row: 1; }
 .room.c { grid-column: 3; grid-row: 1; }
 .room.d { grid-column: 1; grid-row: 2; }
@@ -359,7 +359,7 @@ button { cursor: pointer; }
 .rug { position: absolute; border-radius: 10px; background: rgba(255, 255, 255, .4); }
 
 /* 器材间 */
-.shelf { margin: 52px 10px 0; padding: 0 4px; }
+.shelf { margin: 48px 6px 0; padding: 0 2px; }
 .shelf-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 15px 0 12px; }
 .ucell { display: flex; flex-direction: column; align-items: center; gap: 5px; }
 .ucell i { font-family: var(--mono); font-size: 11px; color: var(--ink-2); font-style: normal; }
@@ -880,3 +880,37 @@ button { cursor: pointer; }
 .eq-hrow b { font-size: 13px; }
 .eq-hrow small { display: block; font-size: 11px; color: var(--ink-3); margin-top: 3px; font-family: var(--mono); }
 .eq-hrow em { display: block; font-size: 11px; color: var(--ink-3); margin-top: 3px; font-style: normal; }
+
+/* ---------------- 人物动效 ---------------- */
+
+@keyframes fig-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-1.4px) scale(1.022); }
+}
+
+.fig {
+  transform-origin: 50% 92%;
+  animation: fig-breathe 4.4s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* 每个座位错开相位，教室里不会整齐划一地一起呼吸 */
+.seat:nth-child(3n + 1) .fig { animation-delay: -0.4s; animation-duration: 4.4s; }
+.seat:nth-child(3n + 2) .fig { animation-delay: -1.9s; animation-duration: 4.9s; }
+.seat:nth-child(3n) .fig { animation-delay: -3.2s; animation-duration: 4.1s; }
+
+/* 老师节奏更慢一点 */
+.tzone .fig { animation-duration: 5.6s; animation-delay: -1s; }
+.worker .fig { animation-duration: 4.7s; animation-delay: -2.2s; }
+
+/* 悬停时整个人往上抬一点，呼吸仍在继续 */
+.seat, .worker { transition: transform .18s ease; }
+.seat:hover, .worker:hover { transform: translateY(-2.5px); }
+
+/* 课时告急的座位，动作稍快一点，视觉上更"焦虑" */
+.seat .tag.low + .fig { animation-duration: 3.4s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fig { animation: none; }
+  .seat, .worker { transition: none; }
+}

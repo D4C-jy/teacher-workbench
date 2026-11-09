@@ -57,7 +57,6 @@ export default function Today() {
   const [focus, second] = data.sessions
   const [y, m, d] = data.date.split('-')
   const seatStudents = data.classStudents
-  const uavInUse = data.equipment.items.filter((e) => e.status === 'in_stock').slice(0, 2)
   const outItems = data.equipment.items.filter((e) => e.status !== 'in_stock')
   const shelfItems = [...data.equipment.items].slice(0, 6)
 
@@ -85,33 +84,6 @@ export default function Today() {
             <span className="shelfbox" style={{ left: 12, top: 38 }} />
             <span className="cooler" style={{ right: 14, bottom: 14 }} />
             <span className="plant" style={{ left: 14, bottom: 14 }} />
-          </div>
-
-          {/* 实操区 */}
-          <div className="room b green">
-            <div className="room-head">
-              <span className="rname">无人机实操区</span>
-              <span className="rmeta">{uavInUse.length} 台在飞</span>
-            </div>
-            <div className="rug" style={{ left: 18, right: 18, top: 44, bottom: 44 }} />
-            <div className="pad">
-              {uavInUse.map((e) => (
-                <Uav key={e.id} />
-              ))}
-              {uavInUse.length === 0 && <Uav dim />}
-            </div>
-            {seatStudents.slice(0, 2).map((s, i) => (
-              <div
-                className="worker"
-                key={s.id}
-                style={i === 0 ? { left: 26, bottom: 56 } : { right: 26, bottom: 56 }}
-              >
-                <span className="tag">{s.name}</span>
-                <Figure />
-              </div>
-            ))}
-            <div className="fence" />
-            <span className="plant" style={{ right: 12, top: 38 }} />
           </div>
 
           {/* 器材间 */}
@@ -249,7 +221,7 @@ export default function Today() {
           </span>
         </div>
         <div className="arow">
-          <span className="n">{data.lentLoans.length}</span> 台无人机未归还
+          <span className="n">{data.lentLoans.length}</span> 台器材未交回
           {data.lentLoans[0] && (
             <span className="badge amber" style={{ marginLeft: 'auto' }}>
               {data.lentLoans[0].code}

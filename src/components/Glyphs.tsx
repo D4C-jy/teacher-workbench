@@ -2,11 +2,24 @@
 export function GlyphDefs() {
   return (
     <svg style={{ display: 'none' }} aria-hidden="true">
-      <symbol id="fig" viewBox="0 0 44 44">
-        <circle cx="22" cy="12" r="7.6" fill="#1C1C1C" />
-        <path d="M5.5 40c0-8.8 7.4-16 16.5-16s16.5 7.2 16.5 16z" fill="#1C1C1C" />
-        <circle cx="7.5" cy="35" r="4.2" fill="#1C1C1C" />
-        <circle cx="36.5" cy="35" r="4.2" fill="#1C1C1C" />
+      <symbol id="fig" viewBox="0 0 48 48">
+        {/* 身体：稍浅的主块 */}
+        <path d="M6.5 45c0-9.8 7.8-17.4 17.5-17.4S41.5 35.2 41.5 45z" fill="#1E1E1E" />
+        {/* 肩线：一道细高光，避免变成纯黑块 */}
+        <path
+          d="M7.4 44.4c.7-9 8-16.2 16.6-16.2s15.9 7.2 16.6 16.2"
+          fill="none"
+          stroke="#3A3A3A"
+          strokeWidth="1.3"
+          strokeLinecap="round"
+        />
+        {/* 头 */}
+        <circle cx="24" cy="14" r="8.3" fill="#232323" />
+        {/* 头的左上高光 */}
+        <circle cx="20.8" cy="10.8" r="2.7" fill="#5A5A5A" opacity="0.38" />
+        {/* 两侧手臂 */}
+        <circle cx="8.6" cy="38.5" r="4.5" fill="#282828" />
+        <circle cx="39.4" cy="38.5" r="4.5" fill="#282828" />
       </symbol>
       <symbol id="uav" viewBox="0 0 24 24">
         <path d="M12 12 6 6M12 12 18 6M12 12 6 18M12 12 18 18" stroke="#4A473F" strokeWidth="1.7" strokeLinecap="round" />

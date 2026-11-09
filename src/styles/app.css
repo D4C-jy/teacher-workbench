@@ -1463,3 +1463,10 @@ button { cursor: pointer; }
 }
 .st-delete:hover { background: #fdf0ee; border-color: #d9958d; }
 .st-delete:disabled { opacity: .5; cursor: not-allowed; }
+
+/* 未分班学员标签：琥珀色醒目提醒 */
+.st-tag.unassigned {
+  background: #fdf3e0;
+  color: #a06a14;
+  font-weight: 600;
+}

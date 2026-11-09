@@ -676,7 +676,7 @@ function listStudents(q: string, classId: number): StudentRow[] {
        AND (? = '' OR s.name LIKE '%' || ? || '%')
        AND (? = 0 OR (cl.id = ?))
      GROUP BY s.id
-     ORDER BY balance ASC, s.name`
+     ORDER BY (cl.name = '未分班') DESC, balance ASC, s.name`
   return db.prepare(sql).all(q, q, classId, classId) as unknown as StudentRow[]
 }
 
@@ -825,13 +825,14 @@ app.post('/api/students', requireAuth, (req, res) => {
   res.json({ ok: true, id: sid })
 })
 
-/** 更新学员档案：姓名/性别/家长姓名/家长电话 */
+/** 更新学员档案：姓名/性别/家长姓名/家长电话/分班 */
 app.patch('/api/students/:id', requireAuth, (req, res) => {
   const id = Number(req.params.id)
   const name = String(req.body?.name ?? '').trim()
   const gender = ['male', 'female'].includes(req.body?.gender) ? req.body.gender : null
   const guardianName = String(req.body?.guardianName ?? '').trim() || null
   const guardianPhone = String(req.body?.guardianPhone ?? '').trim() || null
+  const classId = Number(req.body?.classId || 0)
 
   if (!name) return res.status(400).json({ error: '姓名不能为空' })
 
@@ -842,13 +843,36 @@ app.patch('/api/students/:id', requireAuth, (req, res) => {
   const dup = db.prepare('SELECT id FROM students WHERE name = ? AND archived = 0 AND id != ?').get(name, id)
   if (dup) return res.status(409).json({ error: '这个姓名的学员已存在' })
 
-  db.prepare('UPDATE students SET name = ?, gender = ?, guardian_name = ?, guardian_phone = ? WHERE id = ?').run(
-    name,
-    gender,
-    guardianName,
-    guardianPhone,
-    id
-  )
+  tx(() => {
+    db.prepare('UPDATE students SET name = ?, gender = ?, guardian_name = ?, guardian_phone = ? WHERE id = ?').run(
+      name,
+      gender,
+      guardianName,
+      guardianPhone,
+      id
+    )
+
+    // 分班：传了 classId 且和当前不同，则转班（旧的报名停用，新报名）
+    if (classId > 0) {
+      const current = db
+        .prepare("SELECT id, class_id FROM enrollments WHERE student_id = ? AND status = 'active' LIMIT 1")
+        .get(id) as { id: number; class_id: number } | undefined
+      if (!current || current.class_id !== classId) {
+        const cls = db
+          .prepare('SELECT id, course_id FROM classes WHERE id = ?')
+          .get(classId) as { id: number; course_id: number } | undefined
+        if (cls) {
+          if (current) {
+            db.prepare("UPDATE enrollments SET status = 'inactive' WHERE id = ?").run(current.id)
+          }
+          db.prepare(
+            'INSERT INTO enrollments (student_id, class_id, course_id, purchased_lessons, bonus_lessons) VALUES (?, ?, ?, 0, 0)'
+          ).run(id, classId, cls.course_id)
+        }
+      }
+    }
+  })
+
   res.json({ ok: true })
 })
 

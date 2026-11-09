@@ -303,6 +303,10 @@ POST /api/import/cancel → 反悔，删掉 pending 文件
 
 ## 变更记录
 
+### 2026-11-09 · v1.8.0（未分班置顶 + 编辑分班）
+- 未分班学员置顶：listStudents `ORDER BY (cl.name='未分班') DESC, balance ASC`；列表行加琥珀色「未分班」标签。
+- 编辑学员加分班：PATCH /api/students/:id 支持 classId，传了且与当前不同则转班（旧报名置 inactive + 新报名）；前端编辑弹窗加「分班」下拉（读 detail.enrollments 当前班 + classes 列表）。
+
 ### 2026-11-09 · v1.7.3（未分班学员课时 + 编辑学员）
 - **课时 bug**：新增学员时 `if (classId)` 把"报名+流水"和"分班"耦合，未分班学员填了课时也不记录。
 - 修复：`lessons > 0 || classId` 时都建报名；未分班自动挂到内置「未分班」班级（ensureUnassignedClass 找/建）。

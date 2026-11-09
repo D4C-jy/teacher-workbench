@@ -72,7 +72,7 @@ export default function Students() {
   const [flash, setFlash] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
-  const [editForm, setEditForm] = useState({ name: '', gender: '', guardianName: '', guardianPhone: '' })
+  const [editForm, setEditForm] = useState({ name: '', gender: '', guardianName: '', guardianPhone: '', classId: '' })
   const [addForm, setAddForm] = useState({
     name: '',
     gender: '',
@@ -193,6 +193,7 @@ export default function Students() {
       gender: detail.student.gender ?? '',
       guardianName: detail.student.guardian_name ?? '',
       guardianPhone: detail.student.guardian_phone ?? '',
+      classId: detail.enrollments[0] ? String(detail.enrollments[0].class_id) : '',
     })
     setShowEdit(true)
   }
@@ -213,6 +214,7 @@ export default function Students() {
           gender: editForm.gender || undefined,
           guardianName: editForm.guardianName.trim(),
           guardianPhone: editForm.guardianPhone.trim(),
+          classId: Number(editForm.classId || 0),
         },
       })
       setShowEdit(false)
@@ -327,7 +329,9 @@ export default function Students() {
                 </small>
               </span>
               <span className={`st-bal${s.low ? ' low' : ''}`}>{s.balance}</span>
-              <span className={`st-tag${s.low ? ' low' : ''}`}>{s.balance <= 0 ? '已用完' : s.low ? '需续费' : '正常'}</span>
+              <span className={`st-tag${s.className === '未分班' ? ' unassigned' : ''}${s.low ? ' low' : ''}`}>
+                {s.className === '未分班' ? '未分班' : s.balance <= 0 ? '已用完' : s.low ? '需续费' : '正常'}
+              </span>
             </button>
           ))}
         </div>
@@ -507,6 +511,20 @@ export default function Students() {
               <label>
                 家长电话
                 <input value={editForm.guardianPhone} onChange={(e) => setEditForm({ ...editForm, guardianPhone: e.target.value })} placeholder="可留空" />
+              </label>
+              <label style={{ gridColumn: '1 / -1' }}>
+                分班
+                <select
+                  value={editForm.classId}
+                  onChange={(e) => setEditForm({ ...editForm, classId: e.target.value })}
+                >
+                  <option value="">未分班</option>
+                  {classes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}（{c.course_name}）
+                    </option>
+                  ))}
+                </select>
               </label>
             </div>
             <div className="dlg-foot">

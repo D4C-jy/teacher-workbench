@@ -303,6 +303,12 @@ POST /api/import/cancel → 反悔，删掉 pending 文件
 
 ## 变更记录
 
+### 2026-11-09 · v1.7.2（未分班学员显示 + 删除学员）
+- **根因**：`listStudents` 用 INNER JOIN enrollments，未分班学员（无报名记录）被排除，列表和人数都不显示。
+- 修复：改 LEFT JOIN，未分班学员 class_name 显示「未分班」、course_name「—」，GROUP BY s.id；按班级筛选时未分班学员仍被正确排除。
+- 删除学员：DELETE /api/students/:id，软删除（archived=1 + 报名关系置 inactive），流水保留可追溯。
+  前端详情底部「删除学员」红色描边按钮 + confirm 确认。
+
 ### 2026-11-09 · v1.7.1（修复新增学员前端不刷新）
 - **根因**：`Students.tsx` 的 `load` useCallback 依赖数组含 `activeId`，新增后 `await load()` 用的是 stale closure，
   列表没刷新（后端数据其实已正确落库）。遗留的"张三/李四/123"就是用户实际新增、但前端没显示的证据。

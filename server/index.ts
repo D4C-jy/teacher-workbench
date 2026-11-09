@@ -656,20 +656,24 @@ interface StudentRow {
 }
 
 function listStudents(q: string, classId: number): StudentRow[] {
+  // LEFT JOIN：没有报名（未分班）的学员也显示，班级/课程显示为"未分班"
   const sql = `
-    SELECT s.id, s.name, cl.id AS class_id, cl.name AS class_name, c.name AS course_name,
+    SELECT s.id, s.name,
+           COALESCE(cl.id, 0) AS class_id,
+           COALESCE(cl.name, '未分班') AS class_name,
+           COALESCE(c.name, '—') AS course_name,
            e.id AS enrollment_id,
            ROUND(COALESCE(SUM(l.delta), 0), 2) AS balance,
            e.expire_at
       FROM students s
-      JOIN enrollments e ON e.student_id = s.id AND e.status = 'active'
-      JOIN classes cl ON cl.id = e.class_id
-      JOIN courses c ON c.id = cl.course_id
+      LEFT JOIN enrollments e ON e.student_id = s.id AND e.status = 'active'
+      LEFT JOIN classes cl ON cl.id = e.class_id
+      LEFT JOIN courses c ON c.id = cl.course_id
       LEFT JOIN lesson_ledger l ON l.enrollment_id = e.id
      WHERE s.archived = 0
        AND (? = '' OR s.name LIKE '%' || ? || '%')
-       AND (? = 0 OR cl.id = ?)
-     GROUP BY e.id
+       AND (? = 0 OR (cl.id = ?))
+     GROUP BY s.id
      ORDER BY balance ASC, s.name`
   return db.prepare(sql).all(q, q, classId, classId) as unknown as StudentRow[]
 }
@@ -793,6 +797,22 @@ app.post('/api/students', requireAuth, (req, res) => {
   })
 
   res.json({ ok: true, id: sid })
+})
+
+/** 删除学员：软删除（archived=1），保留流水，可追溯 */
+app.delete('/api/students/:id', requireAuth, (req, res) => {
+  const id = Number(req.params.id)
+  const student = db.prepare('SELECT id FROM students WHERE id = ?').get(id)
+  if (!student) return res.status(404).json({ error: '学员不存在' })
+
+  tx(() => {
+    // 报名关系停用
+    db.prepare("UPDATE enrollments SET status = 'inactive' WHERE student_id = ? AND status = 'active'").run(id)
+    // 学员归档
+    db.prepare('UPDATE students SET archived = 1 WHERE id = ?').run(id)
+  })
+
+  res.json({ ok: true })
 })
 
 app.post('/api/students/:id/recharge', requireAuth, (req, res) => {

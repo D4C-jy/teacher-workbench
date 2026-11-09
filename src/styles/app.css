@@ -1448,3 +1448,18 @@ button { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .course-in, .course-in2, .live.live-on::before { animation: none !important; }
 }
+
+/* 删除学员按钮：危险的红色描边 */
+.st-delete {
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid #e0b9b3;
+  background: #fff;
+  color: #a32b2b;
+  font-size: 12.5px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .15s, border-color .15s;
+}
+.st-delete:hover { background: #fdf0ee; border-color: #d9958d; }
+.st-delete:disabled { opacity: .5; cursor: not-allowed; }

@@ -184,6 +184,28 @@ export default function Students() {
     }
   }
 
+  async function deleteStudent() {
+    if (!activeId) return
+    const name = detail?.student.name ?? '该学员'
+    if (!confirm(`确认删除学员「${name}」？
+
+这会停用其所有报名关系并归档，课时流水保留可追溯。此操作不可恢复。`)) {
+      return
+    }
+    setBusy(true)
+    try {
+      await api(`/students/${activeId}`, { method: 'DELETE' })
+      setFlash(`已删除 ${name}`)
+      setActiveId(null)
+      await load()
+      setTimeout(() => setFlash(''), 2400)
+    } catch (err) {
+      setFlash(err instanceof Error ? err.message : '删除失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function exportCsv() {
     const token = localStorage.getItem('twb.token')
     const res = await fetch('/api/export/students.csv', { headers: token ? { Authorization: `Bearer ${token}` } : {} })
@@ -338,6 +360,15 @@ export default function Students() {
                 </div>
               ))}
             </div>
+
+            <button
+              className="st-delete"
+              disabled={busy}
+              onClick={deleteStudent}
+              style={{ marginTop: 4 }}
+            >
+              删除学员
+            </button>
           </div>
         )}
       </aside>

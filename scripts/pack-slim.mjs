@@ -21,10 +21,10 @@ if (!existsSync(electronDist)) {
   console.error('缺少 electron/dist，先运行：node node_modules/electron/install.js')
   process.exit(1)
 }
-if (!existsSync(path.join(root, 'dist', 'index.html'))) {
-  console.error('缺少 dist/，先运行：npm run build:all')
-  process.exit(1)
-}
+
+// 打包前强制重新构建，确保 dist / dist-server / dist-main 都是最新的
+console.log('· 重新构建 build:all')
+execSync('npm run build:all', { stdio: 'inherit', cwd: root })
 
 // 有些环境（沙箱/杀软）不允许删目录，删不掉就换一个新目录
 console.log('· 准备 staging')

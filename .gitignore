@@ -6,6 +6,7 @@ release-app/
 release-slim/
 build-slim/
 build-slim-*/
+build-slim-tmp/
 data/
 *.log
 .DS_Store

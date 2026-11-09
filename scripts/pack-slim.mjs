@@ -31,7 +31,8 @@ console.log('· 准备 staging')
 try {
   rmSync(stagingRoot, { recursive: true, force: true })
 } catch {
-  stagingRoot = path.join(root, `build-slim-${Date.now()}`)
+  // 删不掉就固定复用同一个目录，避免每次打包多占 300MB
+  stagingRoot = path.join(root, 'build-slim-tmp')
   console.log('  旧目录占用，改用', path.basename(stagingRoot))
 }
 const staging = path.join(stagingRoot, 'win-unpacked')

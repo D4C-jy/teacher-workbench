@@ -929,13 +929,15 @@ button { cursor: pointer; }
 /* ---------------- 首次启动引导 ---------------- */
 
 .ob-wrap {
-  min-height: 100vh; display: grid; place-items: center; padding: 28px 20px;
-  background: var(--bg);
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(24, 21, 16, .45);
+  display: grid; place-items: center; padding: 20px;
 }
 .ob-card {
-  width: 680px; max-width: 100%; background: #fff; border-radius: 20px;
-  box-shadow: 0 2px 8px rgba(30, 26, 20, .06), 0 24px 60px -30px rgba(30, 26, 20, .35);
-  padding: 26px 30px 26px; display: flex; flex-direction: column; gap: 20px;
+  width: 560px; max-width: 100%; max-height: 90vh; overflow: auto;
+  background: #fff; border-radius: 18px;
+  box-shadow: 0 24px 60px -24px rgba(20, 18, 14, .5);
+  padding: 24px 26px 22px; display: flex; flex-direction: column; gap: 18px;
 }
 .ob-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 .ob-head .login-brand { margin: 0; font-size: 15px; }

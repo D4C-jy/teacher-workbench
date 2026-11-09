@@ -27,13 +27,17 @@ function Protected() {
   if (loading) return <div className="loading">加载中…</div>
   if (!user) return <Navigate to="/login" replace />
 
-  // 未完成引导：弹引导弹窗
-  if (onboard === null) return <div className="loading">加载中…</div>
-  if (!onboard.onboarded) {
-    return <Onboarding state={onboard} onDone={() => setOnboard({ ...onboard, onboarded: true })} />
-  }
+  // 未完成引导：在 AppShell 之上叠加引导弹窗
+  const showOnboarding = onboard !== null && !onboard.onboarded
 
-  return <AppShell />
+  return (
+    <>
+      <AppShell />
+      {showOnboarding && (
+        <Onboarding state={onboard} onDone={() => setOnboard({ ...onboard, onboarded: true })} />
+      )}
+    </>
+  )
 }
 
 function LoginRoute() {

@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
 
 CREATE TABLE IF NOT EXISTS courses (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_id        INTEGER NOT NULL DEFAULT 0,
   name            TEXT NOT NULL,
   default_minutes INTEGER NOT NULL DEFAULT 90,
   note            TEXT
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS courses (
 
 CREATE TABLE IF NOT EXISTS classes (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_id  INTEGER NOT NULL DEFAULT 0,
   course_id INTEGER NOT NULL REFERENCES courses(id),
   name      TEXT NOT NULL,
   capacity  INTEGER NOT NULL DEFAULT 12,
@@ -102,6 +104,7 @@ CREATE TABLE IF NOT EXISTS classes (
 
 CREATE TABLE IF NOT EXISTS students (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_id       INTEGER NOT NULL DEFAULT 0,
   name           TEXT NOT NULL,
   gender         TEXT,
   guardian_name  TEXT,
@@ -138,6 +141,7 @@ CREATE TABLE IF NOT EXISTS lesson_ledger (
 
 CREATE TABLE IF NOT EXISTS time_slots (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_id   INTEGER NOT NULL DEFAULT 0,
   name       TEXT NOT NULL,
   start_time TEXT NOT NULL,
   end_time   TEXT NOT NULL
@@ -184,7 +188,8 @@ CREATE TABLE IF NOT EXISTS attendance (
 
 CREATE TABLE IF NOT EXISTS equipment (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  code         TEXT NOT NULL UNIQUE,
+  owner_id     INTEGER NOT NULL DEFAULT 0,
+  code         TEXT NOT NULL,
   model        TEXT,
   status       TEXT NOT NULL DEFAULT 'in_stock',
   purchased_at TEXT,
@@ -214,6 +219,24 @@ CREATE INDEX IF NOT EXISTS idx_ledger_enrollment ON lesson_ledger(enrollment_id)
 CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions(date);
 CREATE INDEX IF NOT EXISTS idx_rules_class ON schedule_rules(class_id);
 `)
+
+/* ---- 轻量迁移：数据归属（每账号独立数据） ---- */
+{
+  // 给顶层实体表补 owner_id 列
+  for (const table of ['courses', 'classes', 'students', 'equipment', 'time_slots']) {
+    const tcols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+    if (!tcols.some((c) => c.name === 'owner_id')) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN owner_id INTEGER NOT NULL DEFAULT 0`)
+    }
+  }
+  // 把现有数据归给最早注册的账号（老数据不丢）
+  const first = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get() as { id: number } | undefined
+  if (first) {
+    for (const table of ['courses', 'classes', 'students', 'equipment', 'time_slots']) {
+      db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner_id = 0`).run(first.id)
+    }
+  }
+}
 
 /* ---- 轻量迁移：课次追源到规则 ---- */
 {

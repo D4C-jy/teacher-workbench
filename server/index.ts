@@ -75,6 +75,14 @@ app.post('/api/auth/register', (req, res) => {
     .run(name, display, hashPassword(pw))
 
   const userId = Number(info.lastInsertRowid)
+
+  // 第一个账号：认领启动时 seed 的演示数据（owner_id=0 的）
+  if (countUsers() === 1) {
+    for (const table of ['courses', 'classes', 'students', 'equipment', 'time_slots']) {
+      db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner_id = 0`).run(userId)
+    }
+  }
+
   res.json({
     token: issueToken(userId),
     user: { id: userId, username: name, displayName: display },
@@ -145,6 +153,7 @@ function weekNumber(dateStr: string): number {
 
 app.get('/api/today', requireAuth, (req, res) => {
   const date = String(req.query.date || todayStr())
+  const ownerId = req.user!.id
   const weekdayLabel = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][new Date(date).getDay()]
 
   const sessions = db
@@ -155,10 +164,10 @@ app.get('/api/today', requireAuth, (req, res) => {
          JOIN time_slots ts ON ts.id = se.slot_id
          JOIN classes cl ON cl.id = se.class_id
          JOIN courses c ON c.id = cl.course_id
-        WHERE se.date = ?
+        WHERE se.date = ? AND cl.owner_id = ?
         ORDER BY ts.start_time`
     )
-    .all(date) as SessionRow[]
+    .all(date, ownerId) as SessionRow[]
 
   const balances = db
     .prepare(
@@ -166,10 +175,10 @@ app.get('/api/today', requireAuth, (req, res) => {
          FROM enrollments e
          JOIN students s ON s.id = e.student_id
          LEFT JOIN lesson_ledger l ON l.enrollment_id = e.id
-        WHERE e.status = 'active' AND s.archived = 0
+        WHERE e.status = 'active' AND s.archived = 0 AND s.owner_id = ?
         GROUP BY s.id, s.name`
     )
-    .all() as BalanceRow[]
+    .all(ownerId) as BalanceRow[]
 
   const lowThreshold = Number(getCfg('low_threshold', '3'))
   const lowStudents = balances
@@ -203,31 +212,36 @@ app.get('/api/today', requireAuth, (req, res) => {
 
   // 未上课的课次用报名人数作为「应到」人数
   const classCounts = new Map(
-    (db.prepare("SELECT class_id, COUNT(*) AS n FROM enrollments WHERE status = 'active' GROUP BY class_id").all() as Array<{
-      class_id: number
-      n: number
-    }>).map((r) => [r.class_id, r.n])
+    (db
+      .prepare(
+        `SELECT e.class_id, COUNT(*) AS n FROM enrollments e
+           JOIN classes cl ON cl.id = e.class_id
+          WHERE e.status = 'active' AND cl.owner_id = ? GROUP BY e.class_id`
+      )
+      .all(ownerId) as Array<{ class_id: number; n: number }>).map((r) => [r.class_id, r.n])
   )
 
   const equipment = db
-    .prepare('SELECT id, code, model, status FROM equipment ORDER BY code')
-    .all() as Array<{ id: number; code: string; model: string; status: string }>
+    .prepare('SELECT id, code, model, status FROM equipment WHERE owner_id = ? ORDER BY code')
+    .all(ownerId) as Array<{ id: number; code: string; model: string; status: string }>
 
   const lentLoans = db
     .prepare(
       `SELECT eq.code, l.borrower_name, l.due_at
          FROM equipment_loans l JOIN equipment eq ON eq.id = l.equipment_id
-        WHERE l.returned_at IS NULL ORDER BY l.lent_at`
+        WHERE l.returned_at IS NULL AND eq.owner_id = ? ORDER BY l.lent_at`
     )
-    .all() as Array<{ code: string; borrower_name: string; due_at: string | null }>
+    .all(ownerId) as Array<{ code: string; borrower_name: string; due_at: string | null }>
 
   const expiring = db
     .prepare(
-      `SELECT COUNT(*) AS n FROM enrollments
-        WHERE status = 'active' AND expire_at IS NOT NULL
-          AND date(expire_at) <= date(?, '+' || ? || ' day')`
+      `SELECT COUNT(*) AS n FROM enrollments e
+         JOIN students s ON s.id = e.student_id
+        WHERE e.status = 'active' AND e.expire_at IS NOT NULL
+          AND s.owner_id = ?
+          AND date(e.expire_at) <= date(?, '+' || ? || ' day')`
     )
-    .get(date, String(Number(getCfg('expire_days', '30')))) as { n: number }
+    .get(ownerId, date, String(Number(getCfg('expire_days', '30')))) as { n: number }
 
   const activeCount = sessions.filter((s) => s.status !== 'cancelled').length
   const attendTotal = sessions
@@ -304,9 +318,15 @@ interface RuleRow {
   room: string | null
 }
 
-/** 按周课表规则补齐该周的课次（已存在的不动） */
-function ensureWeekSessions(weekStart: string) {
-  const rules = db.prepare('SELECT id, class_id, weekday, slot_id, room FROM schedule_rules').all() as RuleRow[]
+/** 按周课表规则补齐该周的课次（已存在的不动），只处理指定账号的班级 */
+function ensureWeekSessions(weekStart: string, ownerId: number) {
+  const rules = db
+    .prepare(
+      `SELECT r.id, r.class_id, r.weekday, r.slot_id, r.room
+         FROM schedule_rules r JOIN classes cl ON cl.id = r.class_id
+        WHERE cl.owner_id = ?`
+    )
+    .all(ownerId) as RuleRow[]
   if (rules.length === 0) return
 
   const insert = db.prepare(
@@ -330,32 +350,34 @@ function ensureWeekSessions(weekStart: string) {
   })
 }
 
-app.get('/api/meta', requireAuth, (_req, res) => {
+app.get('/api/meta', requireAuth, (req, res) => {
+  const ownerId = req.user!.id
   res.json({
-    courses: db.prepare('SELECT id, name FROM courses ORDER BY id').all(),
+    courses: db.prepare('SELECT id, name FROM courses WHERE owner_id = ? ORDER BY id').all(ownerId),
     classes: db
       .prepare(
         `SELECT cl.id, cl.name, cl.course_id, cl.capacity, c.name AS course_name
            FROM classes cl JOIN courses c ON c.id = cl.course_id
-          WHERE cl.name != '未分班' ORDER BY cl.id`
+          WHERE cl.owner_id = ? AND cl.name != '未分班' ORDER BY cl.id`
       )
-      .all(),
-    slots: db.prepare('SELECT id, name, start_time, end_time FROM time_slots ORDER BY start_time').all(),
+      .all(ownerId),
+    slots: db.prepare('SELECT id, name, start_time, end_time FROM time_slots WHERE owner_id = ? ORDER BY start_time').all(ownerId),
   })
 })
 
 /* ---------------- 班级管理 ---------------- */
 
 /** 班级列表：含人数、课程、学生名单 */
-app.get('/api/classes', requireAuth, (_req, res) => {
+app.get('/api/classes', requireAuth, (req, res) => {
+  const ownerId = req.user!.id
   const rows = db
     .prepare(
       `SELECT cl.id, cl.name, cl.course_id, cl.capacity, c.name AS course_name,
               (SELECT COUNT(*) FROM enrollments e WHERE e.class_id = cl.id AND e.status = 'active') AS student_count
          FROM classes cl JOIN courses c ON c.id = cl.course_id
-        WHERE cl.name != '未分班' ORDER BY cl.id`
+        WHERE cl.owner_id = ? AND cl.name != '未分班' ORDER BY cl.id`
     )
-    .all()
+    .all(ownerId)
 
   // 每个班的学员名单
   const students = db
@@ -363,10 +385,10 @@ app.get('/api/classes', requireAuth, (_req, res) => {
       `SELECT e.class_id, s.id, s.name,
               ROUND(COALESCE((SELECT SUM(delta) FROM lesson_ledger l WHERE l.enrollment_id = e.id), 0), 2) AS balance
          FROM enrollments e JOIN students s ON s.id = e.student_id
-        WHERE e.status = 'active' AND s.archived = 0
+        WHERE e.status = 'active' AND s.archived = 0 AND s.owner_id = ?
         ORDER BY e.class_id, s.name`
     )
-    .all()
+    .all(ownerId)
 
   const byClass = new Map<number, Array<{ id: number; name: string; balance: number }>>()
   for (const st of students as Array<{ class_id: number; id: number; name: string; balance: number }>) {
@@ -378,21 +400,22 @@ app.get('/api/classes', requireAuth, (_req, res) => {
     classes: (rows as Array<{ id: number; name: string; course_id: number; capacity: number; course_name: string; student_count: number }>).map(
       (c) => ({ ...c, students: byClass.get(c.id) ?? [] })
     ),
-    courses: db.prepare('SELECT id, name FROM courses ORDER BY id').all(),
+    courses: db.prepare('SELECT id, name FROM courses WHERE owner_id = ? ORDER BY id').all(ownerId),
     // 未分班学员（可用于调班）
     unassigned: db
       .prepare(
         `SELECT s.id, s.name FROM students s
-          WHERE s.archived = 0
+          WHERE s.archived = 0 AND s.owner_id = ?
             AND NOT EXISTS (SELECT 1 FROM enrollments e WHERE e.student_id = s.id AND e.status = 'active')
           ORDER BY s.name`
       )
-      .all(),
+      .all(ownerId),
   })
 })
 
 /** 新建班级 */
 app.post('/api/classes', requireAuth, (req, res) => {
+  const ownerId = req.user!.id
   const name = String(req.body?.name ?? '').trim()
   const courseId = Number(req.body?.courseId || 0)
   const capacity = Number(req.body?.capacity || 12)
@@ -400,19 +423,24 @@ app.post('/api/classes', requireAuth, (req, res) => {
   if (!name) return res.status(400).json({ error: '请填班级名称' })
   if (!courseId) return res.status(400).json({ error: '请选择课程' })
 
-  const dup = db.prepare('SELECT id FROM classes WHERE name = ?').get(name)
+  // 校验课程归属
+  const course = db.prepare('SELECT id FROM courses WHERE id = ? AND owner_id = ?').get(courseId, ownerId)
+  if (!course) return res.status(400).json({ error: '课程不存在' })
+
+  const dup = db.prepare('SELECT id FROM classes WHERE name = ? AND owner_id = ?').get(name, ownerId)
   if (dup) return res.status(409).json({ error: '这个班级名已经存在' })
 
   const info = db
-    .prepare('INSERT INTO classes (course_id, name, capacity) VALUES (?, ?, ?)')
-    .run(courseId, name, capacity)
+    .prepare('INSERT INTO classes (owner_id, course_id, name, capacity) VALUES (?, ?, ?, ?)')
+    .run(ownerId, courseId, name, capacity)
   res.json({ ok: true, id: Number(info.lastInsertRowid) })
 })
 
 /** 删除班级：学员转到「未分班」，删除相关周规则和课次 */
 app.delete('/api/classes/:id', requireAuth, (req, res) => {
   const id = Number(req.params.id)
-  const cls = db.prepare('SELECT id, name FROM classes WHERE id = ?').get(id) as
+  const ownerId = req.user!.id
+  const cls = db.prepare('SELECT id, name FROM classes WHERE id = ? AND owner_id = ?').get(id, ownerId) as
     | { id: number; name: string }
     | undefined
   if (!cls) return res.status(404).json({ error: '班级不存在' })
@@ -426,7 +454,7 @@ app.delete('/api/classes/:id', requireAuth, (req, res) => {
   tx(() => {
     // 学员转到「未分班」班级
     if (studentCount > 0) {
-      const unassigned = ensureUnassignedClass()
+      const unassigned = ensureUnassignedClass(ownerId)
       db.prepare("UPDATE enrollments SET class_id = ?, course_id = ? WHERE class_id = ? AND status = 'active'").run(
         unassigned.id,
         unassigned.course_id,
@@ -448,28 +476,33 @@ app.delete('/api/classes/:id', requireAuth, (req, res) => {
 
 /** 添加学生到班级（从别班转来 / 新建报名） */
 app.post('/api/classes/:id/students', requireAuth, (req, res) => {
+  const ownerId = req.user!.id
   const classId = Number(req.params.id)
   const studentId = Number(req.body?.studentId)
   const studentName = String(req.body?.name ?? '').trim()
 
   const cls = db
-    .prepare('SELECT id, course_id FROM classes WHERE id = ?')
-    .get(classId) as { id: number; course_id: number } | undefined
+    .prepare('SELECT id, course_id FROM classes WHERE id = ? AND owner_id = ?')
+    .get(classId, ownerId) as { id: number; course_id: number } | undefined
   if (!cls) return res.status(404).json({ error: '班级不存在' })
 
   let sid = studentId
   if (!sid && studentName) {
     // 新学员：直接建
-    const exist = db.prepare('SELECT id FROM students WHERE name = ? AND archived = 0').get(studentName) as
+    const exist = db.prepare('SELECT id FROM students WHERE name = ? AND archived = 0 AND owner_id = ?').get(studentName, ownerId) as
       | { id: number }
       | undefined
     if (exist) {
       sid = exist.id
     } else {
-      sid = Number(db.prepare('INSERT INTO students (name) VALUES (?)').run(studentName).lastInsertRowid)
+      sid = Number(db.prepare('INSERT INTO students (owner_id, name) VALUES (?, ?)').run(ownerId, studentName).lastInsertRowid)
     }
   }
   if (!sid) return res.status(400).json({ error: '请选择或输入学员' })
+
+  // 校验学员归属
+  const stuOwn = db.prepare('SELECT id FROM students WHERE id = ? AND owner_id = ?').get(sid, ownerId)
+  if (!stuOwn) return res.status(404).json({ error: '学员不存在' })
 
   // 已在这个班？
   const already = db
@@ -490,8 +523,12 @@ app.post('/api/classes/:id/students', requireAuth, (req, res) => {
 
 /** 从班级移除学员（不删学生，只解除报名关系） */
 app.delete('/api/classes/:id/students/:studentId', requireAuth, (req, res) => {
+  const ownerId = req.user!.id
   const classId = Number(req.params.id)
   const studentId = Number(req.params.studentId)
+  // 校验班级归属
+  const cls = db.prepare('SELECT id FROM classes WHERE id = ? AND owner_id = ?').get(classId, ownerId)
+  if (!cls) return res.status(404).json({ error: '班级不存在' })
   const info = db
     .prepare("UPDATE enrollments SET status = 'inactive' WHERE class_id = ? AND student_id = ? AND status = 'active'")
     .run(classId, studentId)
@@ -501,12 +538,13 @@ app.delete('/api/classes/:id/students/:studentId', requireAuth, (req, res) => {
 
 app.get('/api/timetable', requireAuth, (req, res) => {
   const raw = String(req.query.start || '')
+  const ownerId = req.user!.id
   const weekStart = mondayOf(raw || todayStr())
-  ensureWeekSessions(weekStart)
+  ensureWeekSessions(weekStart, ownerId)
 
   const slots = db
-    .prepare('SELECT id, name, start_time, end_time FROM time_slots ORDER BY start_time')
-    .all() as Array<{ id: number; name: string; start_time: string; end_time: string }>
+    .prepare('SELECT id, name, start_time, end_time FROM time_slots WHERE owner_id = ? ORDER BY start_time')
+    .all(ownerId) as Array<{ id: number; name: string; start_time: string; end_time: string }>
 
   const rows = db
     .prepare(
@@ -515,10 +553,10 @@ app.get('/api/timetable', requireAuth, (req, res) => {
          FROM sessions se
          JOIN classes cl ON cl.id = se.class_id
          JOIN courses c ON c.id = cl.course_id
-        WHERE se.date BETWEEN ? AND ?
+        WHERE se.date BETWEEN ? AND ? AND cl.owner_id = ?
         ORDER BY se.date`
     )
-    .all(weekStart, addDays(weekStart, 6)) as Array<{
+    .all(weekStart, addDays(weekStart, 6), ownerId) as Array<{
     id: number
     date: string
     slot_id: number
@@ -532,8 +570,12 @@ app.get('/api/timetable', requireAuth, (req, res) => {
 
   const counts = new Map(
     (db
-      .prepare("SELECT class_id, COUNT(*) AS n FROM enrollments WHERE status = 'active' GROUP BY class_id")
-      .all() as Array<{ class_id: number; n: number }>).map((r) => [r.class_id, r.n])
+      .prepare(
+        `SELECT e.class_id, COUNT(*) AS n FROM enrollments e
+           JOIN classes cl ON cl.id = e.class_id
+          WHERE e.status = 'active' AND cl.owner_id = ? GROUP BY e.class_id`
+      )
+      .all(ownerId) as Array<{ class_id: number; n: number }>).map((r) => [r.class_id, r.n])
   )
 
   const today = todayStr()
@@ -580,44 +622,53 @@ app.get('/api/timetable', requireAuth, (req, res) => {
 
 app.post('/api/sessions/:id/status', requireAuth, (req, res) => {
   const id = Number(req.params.id)
+  const ownerId = req.user!.id
   const status = String(req.body?.status ?? '')
   if (!['planned', 'done', 'cancelled'].includes(status)) {
     return res.status(400).json({ error: '状态不合法' })
   }
-  const info = db.prepare('UPDATE sessions SET status = ? WHERE id = ?').run(status, id)
-  if (Number(info.changes) === 0) return res.status(404).json({ error: '课次不存在' })
+  const owns = db
+    .prepare('SELECT se.id FROM sessions se JOIN classes cl ON cl.id = se.class_id WHERE se.id = ? AND cl.owner_id = ?')
+    .get(id, ownerId)
+  if (!owns) return res.status(404).json({ error: '课次不存在' })
+  db.prepare('UPDATE sessions SET status = ? WHERE id = ?').run(status, id)
   res.json({ ok: true })
 })
 
 app.post('/api/sessions/:id/move', requireAuth, (req, res) => {
   const id = Number(req.params.id)
+  const ownerId = req.user!.id
   const slotId = Number(req.body?.slotId)
   if (!slotId) return res.status(400).json({ error: '请选择新的时段' })
-  const slot = db.prepare('SELECT id FROM time_slots WHERE id = ?').get(slotId)
+  const slot = db.prepare('SELECT id FROM time_slots WHERE id = ? AND owner_id = ?').get(slotId, ownerId)
   if (!slot) return res.status(400).json({ error: '时段不存在' })
-  const info = db.prepare('UPDATE sessions SET slot_id = ? WHERE id = ?').run(slotId, id)
-  if (Number(info.changes) === 0) return res.status(404).json({ error: '课次不存在' })
+  const owns = db
+    .prepare('SELECT se.id FROM sessions se JOIN classes cl ON cl.id = se.class_id WHERE se.id = ? AND cl.owner_id = ?')
+    .get(id, ownerId)
+  if (!owns) return res.status(404).json({ error: '课次不存在' })
+  db.prepare('UPDATE sessions SET slot_id = ? WHERE id = ?').run(slotId, id)
   res.json({ ok: true })
 })
 
 /* ---------------- 排课 ---------------- */
 
 /** 按开始/结束时间找或建一个时段 */
-function ensureSlot(start: string, end: string): number | null {
+function ensureSlot(start: string, end: string, ownerId: number): number | null {
   const re = /^([01]\d|2[0-3]):([0-5]\d)$/
   if (!re.test(start) || !re.test(end)) return null
   if (start >= end) return null
-  const found = db.prepare('SELECT id FROM time_slots WHERE start_time = ? AND end_time = ?').get(start, end) as
+  const found = db.prepare('SELECT id FROM time_slots WHERE start_time = ? AND end_time = ? AND owner_id = ?').get(start, end, ownerId) as
     | { id: number }
     | undefined
   if (found) return found.id
   const info = db
-    .prepare('INSERT INTO time_slots (name, start_time, end_time) VALUES (?, ?, ?)')
-    .run(`${start}–${end}`, start, end)
+    .prepare('INSERT INTO time_slots (owner_id, name, start_time, end_time) VALUES (?, ?, ?, ?)')
+    .run(ownerId, `${start}–${end}`, start, end)
   return Number(info.lastInsertRowid)
 }
 
 app.post('/api/schedule/rule', requireAuth, (req, res) => {
+  const ownerId = req.user!.id
   const classId = Number(req.body?.classId)
   const weekday = Number(req.body?.weekday)
   let slotId = Number(req.body?.slotId || 0)
@@ -626,7 +677,7 @@ app.post('/api/schedule/rule', requireAuth, (req, res) => {
   const startTime = String(req.body?.startTime ?? '')
   const endTime = String(req.body?.endTime ?? '')
   if (!slotId && startTime && endTime) {
-    const made = ensureSlot(startTime, endTime)
+    const made = ensureSlot(startTime, endTime, ownerId)
     if (!made) return res.status(400).json({ error: '时间格式不对，或结束早于开始' })
     slotId = made
   }
@@ -634,8 +685,8 @@ app.post('/api/schedule/rule', requireAuth, (req, res) => {
   if (!classId || !slotId || Number.isNaN(weekday) || weekday < 0 || weekday > 6) {
     return res.status(400).json({ error: '请选择班级、星期和时段' })
   }
-  const cls = db.prepare('SELECT id FROM classes WHERE id = ?').get(classId)
-  const slot = db.prepare('SELECT id FROM time_slots WHERE id = ?').get(slotId)
+  const cls = db.prepare('SELECT id FROM classes WHERE id = ? AND owner_id = ?').get(classId, ownerId)
+  const slot = db.prepare('SELECT id FROM time_slots WHERE id = ? AND owner_id = ?').get(slotId, ownerId)
   if (!cls || !slot) return res.status(400).json({ error: '班级或时段不存在' })
 
   const dup = db
@@ -649,11 +700,12 @@ app.post('/api/schedule/rule', requireAuth, (req, res) => {
     slotId,
     room
   )
-  ensureWeekSessions(mondayOf(todayStr()))
+  ensureWeekSessions(mondayOf(todayStr()), ownerId)
   res.json({ ok: true })
 })
 
 app.post('/api/sessions', requireAuth, (req, res) => {
+  const ownerId = req.user!.id
   const date = String(req.body?.date ?? '').trim()
   const classId = Number(req.body?.classId)
   let slotId = Number(req.body?.slotId || 0)
@@ -662,13 +714,16 @@ app.post('/api/sessions', requireAuth, (req, res) => {
   const startTime = String(req.body?.startTime ?? '')
   const endTime = String(req.body?.endTime ?? '')
   if (!slotId && startTime && endTime) {
-    const made = ensureSlot(startTime, endTime)
+    const made = ensureSlot(startTime, endTime, ownerId)
     if (!made) return res.status(400).json({ error: '时间格式不对，或结束早于开始' })
     slotId = made
   }
 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: '日期格式不对' })
   if (!classId || !slotId) return res.status(400).json({ error: '请选择班级和时段' })
+
+  const cls = db.prepare('SELECT id FROM classes WHERE id = ? AND owner_id = ?').get(classId, ownerId)
+  if (!cls) return res.status(404).json({ error: '班级不存在' })
 
   const dup = db
     .prepare('SELECT id FROM sessions WHERE date = ? AND class_id = ? AND slot_id = ?')
@@ -694,7 +749,7 @@ interface StudentRow {
   expire_at: string | null
 }
 
-function listStudents(q: string, classId: number): StudentRow[] {
+function listStudents(q: string, classId: number, ownerId: number): StudentRow[] {
   // LEFT JOIN：没有报名（未分班）的学员也显示，班级/课程显示为"未分班"
   const sql = `
     SELECT s.id, s.name,
@@ -710,17 +765,19 @@ function listStudents(q: string, classId: number): StudentRow[] {
       LEFT JOIN courses c ON c.id = cl.course_id
       LEFT JOIN lesson_ledger l ON l.enrollment_id = e.id
      WHERE s.archived = 0
+       AND s.owner_id = ?
        AND (? = '' OR s.name LIKE '%' || ? || '%')
        AND (? = 0 OR (cl.id = ?))
      GROUP BY s.id
      ORDER BY (cl.name = '未分班') DESC, balance ASC, s.name`
-  return db.prepare(sql).all(q, q, classId, classId) as unknown as StudentRow[]
+  return db.prepare(sql).all(ownerId, q, q, classId, classId) as unknown as StudentRow[]
 }
 
 app.get('/api/students', requireAuth, (req, res) => {
   const q = String(req.query.q ?? '').trim()
   const classId = Number(req.query.classId || 0)
-  const rows = listStudents(q, classId)
+  const ownerId = req.user!.id
+  const rows = listStudents(q, classId, ownerId)
   const threshold = Number(getCfg('low_threshold', '3'))
   res.json({
     students: rows.map((r) => ({
@@ -746,9 +803,10 @@ app.get('/api/students', requireAuth, (req, res) => {
 
 app.get('/api/students/:id', requireAuth, (req, res) => {
   const id = Number(req.params.id)
+  const ownerId = req.user!.id
   const student = db
-    .prepare('SELECT id, name, gender, guardian_name, guardian_phone, note FROM students WHERE id = ?')
-    .get(id) as
+    .prepare('SELECT id, name, gender, guardian_name, guardian_phone, note FROM students WHERE id = ? AND owner_id = ?')
+    .get(id, ownerId) as
     | {
         id: number
         name: string
@@ -791,24 +849,25 @@ app.get('/api/students/:id', requireAuth, (req, res) => {
 })
 
 /** 找或建「未分班」班级（给没选班级但有课时的学员用） */
-function ensureUnassignedClass(): { id: number; course_id: number } {
-  const existing = db.prepare("SELECT id, course_id FROM classes WHERE name = '未分班'").get() as
+function ensureUnassignedClass(ownerId: number): { id: number; course_id: number } {
+  const existing = db.prepare("SELECT id, course_id FROM classes WHERE name = '未分班' AND owner_id = ?").get(ownerId) as
     | { id: number; course_id: number }
     | undefined
   if (existing) return existing
 
-  // 需要一个课程，取第一个，没有就建一个「通用」
-  let course = db.prepare('SELECT id FROM courses ORDER BY id LIMIT 1').get() as { id: number } | undefined
+  // 需要一个课程，取本账号第一个，没有就建一个「通用」
+  let course = db.prepare('SELECT id FROM courses WHERE owner_id = ? ORDER BY id LIMIT 1').get(ownerId) as { id: number } | undefined
   if (!course) {
-    const info = db.prepare("INSERT INTO courses (name, default_minutes) VALUES ('通用', 90)").run()
+    const info = db.prepare("INSERT INTO courses (owner_id, name, default_minutes) VALUES (?, '通用', 90)").run(ownerId)
     course = { id: Number(info.lastInsertRowid) }
   }
-  const info = db.prepare("INSERT INTO classes (course_id, name, capacity, note) VALUES (?, '未分班', 100, '系统内置，未分班学员暂存')").run(course.id)
+  const info = db.prepare("INSERT INTO classes (owner_id, course_id, name, capacity, note) VALUES (?, ?, '未分班', 100, '系统内置，未分班学员暂存')").run(ownerId, course.id)
   return { id: Number(info.lastInsertRowid), course_id: course.id }
 }
 
 /** 新增学员：姓名/性别/家长联系方式/报名课包 */
 app.post('/api/students', requireAuth, (req, res) => {
+  const ownerId = req.user!.id
   const name = String(req.body?.name ?? '').trim()
   const gender = ['male', 'female'].includes(req.body?.gender) ? req.body.gender : null
   const guardianName = String(req.body?.guardianName ?? '').trim() || null
@@ -819,28 +878,28 @@ app.post('/api/students', requireAuth, (req, res) => {
 
   if (!name) return res.status(400).json({ error: '请填学员姓名' })
 
-  const dup = db.prepare('SELECT id FROM students WHERE name = ? AND archived = 0').get(name)
+  const dup = db.prepare('SELECT id FROM students WHERE name = ? AND archived = 0 AND owner_id = ?').get(name, ownerId)
   if (dup) return res.status(409).json({ error: '这个姓名的学员已存在' })
 
   let sid = 0
   tx(() => {
     sid = Number(
       db
-        .prepare('INSERT INTO students (name, gender, guardian_name, guardian_phone) VALUES (?, ?, ?, ?)')
-        .run(name, gender, guardianName, guardianPhone).lastInsertRowid
+        .prepare('INSERT INTO students (owner_id, name, gender, guardian_name, guardian_phone) VALUES (?, ?, ?, ?, ?)')
+        .run(ownerId, name, gender, guardianName, guardianPhone).lastInsertRowid
     )
 
     // 报名课包：有课时就建报名 + 充值流水
     if (lessons > 0 || classId) {
       let cls: { id: number; course_id: number } | undefined
       if (classId) {
-        cls = db.prepare('SELECT id, course_id FROM classes WHERE id = ?').get(classId) as
+        cls = db.prepare('SELECT id, course_id FROM classes WHERE id = ? AND owner_id = ?').get(classId, ownerId) as
           | { id: number; course_id: number }
           | undefined
       }
       // 未选班级但有课时：挂到内置「未分班」班级
       if (!cls) {
-        cls = ensureUnassignedClass()
+        cls = ensureUnassignedClass(ownerId)
       }
       if (cls) {
         const eid = Number(
@@ -873,11 +932,12 @@ app.patch('/api/students/:id', requireAuth, (req, res) => {
 
   if (!name) return res.status(400).json({ error: '姓名不能为空' })
 
-  const student = db.prepare('SELECT id FROM students WHERE id = ?').get(id)
+  const ownerId = req.user!.id
+  const student = db.prepare('SELECT id FROM students WHERE id = ? AND owner_id = ?').get(id, ownerId)
   if (!student) return res.status(404).json({ error: '学员不存在' })
 
   // 重名检查（排除自己）
-  const dup = db.prepare('SELECT id FROM students WHERE name = ? AND archived = 0 AND id != ?').get(name, id)
+  const dup = db.prepare('SELECT id FROM students WHERE name = ? AND archived = 0 AND id != ? AND owner_id = ?').get(name, id, ownerId)
   if (dup) return res.status(409).json({ error: '这个姓名的学员已存在' })
 
   tx(() => {
@@ -896,8 +956,8 @@ app.patch('/api/students/:id', requireAuth, (req, res) => {
         .get(id) as { id: number; class_id: number } | undefined
       if (!current || current.class_id !== classId) {
         const cls = db
-          .prepare('SELECT id, course_id FROM classes WHERE id = ?')
-          .get(classId) as { id: number; course_id: number } | undefined
+          .prepare('SELECT id, course_id FROM classes WHERE id = ? AND owner_id = ?')
+          .get(classId, ownerId) as { id: number; course_id: number } | undefined
         if (cls) {
           if (current) {
             db.prepare("UPDATE enrollments SET status = 'inactive' WHERE id = ?").run(current.id)
@@ -916,7 +976,8 @@ app.patch('/api/students/:id', requireAuth, (req, res) => {
 /** 删除学员：软删除（archived=1），保留流水，可追溯 */
 app.delete('/api/students/:id', requireAuth, (req, res) => {
   const id = Number(req.params.id)
-  const student = db.prepare('SELECT id FROM students WHERE id = ?').get(id)
+  const ownerId = req.user!.id
+  const student = db.prepare('SELECT id FROM students WHERE id = ? AND owner_id = ?').get(id, ownerId)
   if (!student) return res.status(404).json({ error: '学员不存在' })
 
   tx(() => {
@@ -940,6 +1001,11 @@ app.post('/api/students/:id/recharge', requireAuth, (req, res) => {
   if (!Number.isFinite(lessons) || lessons <= 0) {
     return res.status(400).json({ error: '充值课时必须大于 0' })
   }
+
+  const ownerId = req.user!.id
+  // 校验学员归属当前账号
+  const stu = db.prepare('SELECT id FROM students WHERE id = ? AND owner_id = ?').get(id, ownerId)
+  if (!stu) return res.status(404).json({ error: '学员不存在' })
 
   const enr = enrollmentId
     ? (db.prepare('SELECT id FROM enrollments WHERE id = ? AND student_id = ?').get(enrollmentId, id) as
@@ -980,9 +1046,10 @@ app.post('/api/lessons/consume', requireAuth, (req, res) => {
     return res.status(400).json({ error: '请选择课次和学员考勤' })
   }
 
-  const session = db.prepare('SELECT id, date, class_id, status FROM sessions WHERE id = ?').get(sessionId) as
-    | { id: number; date: string; class_id: number; status: string }
-    | undefined
+  const ownerId = req.user!.id
+  const session = db
+    .prepare('SELECT se.id, se.date, se.class_id, se.status FROM sessions se JOIN classes cl ON cl.id = se.class_id WHERE se.id = ? AND cl.owner_id = ?')
+    .get(sessionId, ownerId) as { id: number; date: string; class_id: number; status: string } | undefined
   if (!session) return res.status(404).json({ error: '课次不存在' })
   if (session.status === 'cancelled') return res.status(400).json({ error: '这节课已停课，不能消课' })
 
@@ -1037,8 +1104,8 @@ app.post('/api/lessons/consume', requireAuth, (req, res) => {
   res.json({ ok: true, present: result.present, leave: result.leave, absent: result.absent, skipped: result.skipped })
 })
 
-app.get('/api/export/students.csv', requireAuth, (_req, res) => {
-  const rows = listStudents('', 0)
+app.get('/api/export/students.csv', requireAuth, (req, res) => {
+  const rows = listStudents('', 0, req.user!.id)
   const head = '姓名,班级,课程,剩余课时,到期日\n'
   const body = rows
     .map((r) => [r.name, r.class_name, r.course_name, r.balance, r.expire_at ?? ''].join(','))
@@ -1057,43 +1124,62 @@ function pct(n: number, d: number): number {
 
 app.get('/api/stats/monthly', requireAuth, (req, res) => {
   const month = String(req.query.month || todayStr().slice(0, 7))
+  const ownerId = req.user!.id
   if (!/^\d{4}-\d{2}$/.test(month)) return res.status(400).json({ error: '月份格式应为 YYYY-MM' })
   const like = `${month}%`
 
   const consumed = (
     db
-      .prepare("SELECT COALESCE(SUM(-delta), 0) AS v FROM lesson_ledger WHERE type = 'consume' AND occurred_at LIKE ?")
-      .get(like) as { v: number }
+      .prepare(
+        `SELECT COALESCE(SUM(-l.delta), 0) AS v FROM lesson_ledger l
+           JOIN enrollments e ON e.id = l.enrollment_id
+           JOIN students s ON s.id = e.student_id
+          WHERE l.type = 'consume' AND l.occurred_at LIKE ? AND s.owner_id = ?`
+      )
+      .get(like, ownerId) as { v: number }
   ).v
 
   const revenue = (
     db
-      .prepare("SELECT COALESCE(SUM(amount), 0) AS v FROM lesson_ledger WHERE type = 'charge' AND occurred_at LIKE ?")
-      .get(like) as { v: number }
+      .prepare(
+        `SELECT COALESCE(SUM(l.amount), 0) AS v FROM lesson_ledger l
+           JOIN enrollments e ON e.id = l.enrollment_id
+           JOIN students s ON s.id = e.student_id
+          WHERE l.type = 'charge' AND l.occurred_at LIKE ? AND s.owner_id = ?`
+      )
+      .get(like, ownerId) as { v: number }
   ).v
 
   const doneSessions = (
     db
-      .prepare("SELECT COUNT(*) AS n FROM sessions WHERE status = 'done' AND date LIKE ?")
-      .get(like) as { n: number }
+      .prepare(
+        `SELECT COUNT(*) AS n FROM sessions se
+           JOIN classes cl ON cl.id = se.class_id
+          WHERE se.status = 'done' AND se.date LIKE ? AND cl.owner_id = ?`
+      )
+      .get(like, ownerId) as { n: number }
   ).n
 
   const present = (
     db
       .prepare(
-        "SELECT COUNT(*) AS n FROM attendance a JOIN sessions s ON s.id = a.session_id WHERE s.status = 'done' AND s.date LIKE ?"
+        `SELECT COUNT(*) AS n FROM attendance a
+           JOIN sessions se ON se.id = a.session_id
+           JOIN classes cl ON cl.id = se.class_id
+          WHERE se.status = 'done' AND se.date LIKE ? AND cl.owner_id = ?`
       )
-      .get(like) as { n: number }
+      .get(like, ownerId) as { n: number }
   ).n
 
   const expected = (
     db
       .prepare(
-        `SELECT COUNT(*) AS n FROM sessions s
-           JOIN enrollments e ON e.class_id = s.class_id AND e.status = 'active'
-          WHERE s.status = 'done' AND s.date LIKE ?`
+        `SELECT COUNT(*) AS n FROM sessions se
+           JOIN enrollments e ON e.class_id = se.class_id AND e.status = 'active'
+           JOIN classes cl ON cl.id = se.class_id
+          WHERE se.status = 'done' AND se.date LIKE ? AND cl.owner_id = ?`
       )
-      .get(like) as { n: number }
+      .get(like, ownerId) as { n: number }
   ).n
 
   // 应续费人数：当前余额 < 10 课时的在读学员（去重）
@@ -1103,13 +1189,14 @@ app.get('/api/stats/monthly', requireAuth, (req, res) => {
         `SELECT COUNT(*) AS n FROM (
            SELECT e.student_id
              FROM enrollments e
+             JOIN students s ON s.id = e.student_id
              LEFT JOIN lesson_ledger l ON l.enrollment_id = e.id
-            WHERE e.status = 'active'
+            WHERE e.status = 'active' AND s.owner_id = ?
             GROUP BY e.student_id
            HAVING COALESCE(SUM(l.delta), 0) < 10
          )`
       )
-      .get() as { n: number }
+      .get(ownerId) as { n: number }
   ).n
 
   // 本月续费人数：本月有充值记录的学员（去重）
@@ -1118,18 +1205,22 @@ app.get('/api/stats/monthly', requireAuth, (req, res) => {
       .prepare(
         `SELECT COUNT(DISTINCT e.student_id) AS n FROM lesson_ledger l
            JOIN enrollments e ON e.id = l.enrollment_id
-          WHERE l.type = 'charge' AND l.occurred_at LIKE ?`
+           JOIN students s ON s.id = e.student_id
+          WHERE l.type = 'charge' AND l.occurred_at LIKE ? AND s.owner_id = ?`
       )
-      .get(like) as { n: number }
+      .get(like, ownerId) as { n: number }
   ).n
 
   const daily = db
     .prepare(
-      `SELECT substr(occurred_at, 1, 10) AS d, COALESCE(SUM(-delta), 0) AS v
-         FROM lesson_ledger WHERE type = 'consume' AND occurred_at LIKE ?
+      `SELECT substr(l.occurred_at, 1, 10) AS d, COALESCE(SUM(-l.delta), 0) AS v
+         FROM lesson_ledger l
+         JOIN enrollments e ON e.id = l.enrollment_id
+         JOIN students s ON s.id = e.student_id
+        WHERE l.type = 'consume' AND l.occurred_at LIKE ? AND s.owner_id = ?
         GROUP BY d ORDER BY d`
     )
-    .all(like) as Array<{ d: string; v: number }>
+    .all(like, ownerId) as Array<{ d: string; v: number }>
 
   res.json({
     month,
@@ -1153,17 +1244,19 @@ interface EqRow {
   purchased_at: string | null
 }
 
-app.get('/api/equipment', requireAuth, (_req, res) => {
+app.get('/api/equipment', requireAuth, (req, res) => {
+  const ownerId = req.user!.id
   const items = db
-    .prepare('SELECT id, code, model, status, note, purchased_at FROM equipment ORDER BY code')
-    .all() as unknown as EqRow[]
+    .prepare('SELECT id, code, model, status, note, purchased_at FROM equipment WHERE owner_id = ? ORDER BY code')
+    .all(ownerId) as unknown as EqRow[]
 
   const openLoans = db
     .prepare(
       `SELECT l.equipment_id, l.borrower_name, l.lent_at, l.due_at, l.condition_out, l.note
-         FROM equipment_loans l WHERE l.returned_at IS NULL`
+         FROM equipment_loans l JOIN equipment eq ON eq.id = l.equipment_id
+        WHERE l.returned_at IS NULL AND eq.owner_id = ?`
     )
-    .all() as Array<{
+    .all(ownerId) as Array<{
     equipment_id: number
     borrower_name: string
     lent_at: string
@@ -1205,21 +1298,23 @@ app.get('/api/equipment', requireAuth, (_req, res) => {
 })
 
 app.post('/api/equipment', requireAuth, (req, res) => {
+  const ownerId = req.user!.id
   const code = String(req.body?.code ?? '').trim()
   const model = String(req.body?.model ?? '').trim() || null
   if (code.length < 2) return res.status(400).json({ error: '编号至少 2 个字符' })
 
-  const dup = db.prepare('SELECT id FROM equipment WHERE code = ?').get(code)
+  const dup = db.prepare('SELECT id FROM equipment WHERE code = ? AND owner_id = ?').get(code, ownerId)
   if (dup) return res.status(409).json({ error: '这个编号已经存在' })
 
   const info = db
-    .prepare("INSERT INTO equipment (code, model, status) VALUES (?, ?, 'in_stock')")
-    .run(code, model)
+    .prepare("INSERT INTO equipment (owner_id, code, model, status) VALUES (?, ?, ?, 'in_stock')")
+    .run(ownerId, code, model)
   res.json({ ok: true, id: Number(info.lastInsertRowid) })
 })
 
 app.post('/api/equipment/:id/lend', requireAuth, (req, res) => {
   const id = Number(req.params.id)
+  const ownerId = req.user!.id
   const borrower = String(req.body?.borrowerName ?? '').trim()
   const purpose = String(req.body?.purpose ?? '').trim() || null
   const dueAt = req.body?.dueAt ? String(req.body.dueAt) : null
@@ -1227,7 +1322,7 @@ app.post('/api/equipment/:id/lend', requireAuth, (req, res) => {
 
   if (!borrower) return res.status(400).json({ error: '请填取用人' })
 
-  const eq = db.prepare('SELECT id, status FROM equipment WHERE id = ?').get(id) as
+  const eq = db.prepare('SELECT id, status FROM equipment WHERE id = ? AND owner_id = ?').get(id, ownerId) as
     | { id: number; status: string }
     | undefined
   if (!eq) return res.status(404).json({ error: '器材不存在' })
@@ -1246,10 +1341,11 @@ app.post('/api/equipment/:id/lend', requireAuth, (req, res) => {
 
 app.post('/api/equipment/:id/return', requireAuth, (req, res) => {
   const id = Number(req.params.id)
+  const ownerId = req.user!.id
   const conditionIn = String(req.body?.conditionIn ?? '').trim() || null
   const toRepair = Boolean(req.body?.toRepair)
 
-  const eq = db.prepare('SELECT id, status FROM equipment WHERE id = ?').get(id) as
+  const eq = db.prepare('SELECT id, status FROM equipment WHERE id = ? AND owner_id = ?').get(id, ownerId) as
     | { id: number; status: string }
     | undefined
   if (!eq) return res.status(404).json({ error: '器材不存在' })
@@ -1272,6 +1368,9 @@ app.post('/api/equipment/:id/return', requireAuth, (req, res) => {
 
 app.get('/api/equipment/:id/loans', requireAuth, (req, res) => {
   const id = Number(req.params.id)
+  const ownerId = req.user!.id
+  const owns = db.prepare('SELECT id FROM equipment WHERE id = ? AND owner_id = ?').get(id, ownerId)
+  if (!owns) return res.status(404).json({ error: '器材不存在' })
   const rows = db
     .prepare(
       `SELECT id, borrower_name, lent_at, due_at, returned_at, condition_out, condition_in, note
@@ -1281,10 +1380,10 @@ app.get('/api/equipment/:id/loans', requireAuth, (req, res) => {
   res.json({ loans: rows })
 })
 
-app.get('/api/export/equipment.csv', requireAuth, (_req, res) => {
+app.get('/api/export/equipment.csv', requireAuth, (req, res) => {
   const items = db
-    .prepare('SELECT code, model, status, note, purchased_at FROM equipment ORDER BY code')
-    .all() as Array<{ code: string; model: string | null; status: string; note: string | null; purchased_at: string | null }>
+    .prepare('SELECT code, model, status, note, purchased_at FROM equipment WHERE owner_id = ? ORDER BY code')
+    .all(req.user!.id) as Array<{ code: string; model: string | null; status: string; note: string | null; purchased_at: string | null }>
   const label: Record<string, string> = { in_stock: '在库', lent: '借出', repair: '维修', retired: '停用' }
   const head = '编号,型号,状态,备注,购入日期\n'
   const body = items
@@ -1370,12 +1469,13 @@ app.post('/api/settings', requireAuth, (req, res) => {
 })
 
 app.post('/api/slots', requireAuth, (req, res) => {
+  const ownerId = req.user!.id
   const start = String(req.body?.startTime ?? '')
   const end = String(req.body?.endTime ?? '')
   const name = String(req.body?.name ?? '').trim()
-  const id = ensureSlot(start, end)
+  const id = ensureSlot(start, end, ownerId)
   if (!id) return res.status(400).json({ error: '时间格式不对，或结束早于开始' })
-  if (name) db.prepare('UPDATE time_slots SET name = ? WHERE id = ?').run(name, id)
+  if (name) db.prepare('UPDATE time_slots SET name = ? WHERE id = ? AND owner_id = ?').run(name, id, ownerId)
   res.json({ ok: true, id })
 })
 
@@ -1435,38 +1535,38 @@ app.post('/api/native/relaunch', (_req, res) => {
 
 /* ---------------- 首次启动引导 ---------------- */
 
-app.get('/api/onboard-state', (_req, res) => {
+app.get('/api/onboard-state', requireAuth, (req, res) => {
+  const uid = req.user!.id
   res.json({
-    onboarded: getCfg('onboarded', '0') === '1',
-    hasUser: countUsers() > 0,
+    onboarded: getCfg(`onboarded:${uid}`, '0') === '1',
     dataDir: DATA_DIR,
     defaultDataDir: path.join(HOME_DIR, 'data'),
     canPickFolder: Boolean(nativeApi()?.pickFolder),
   })
 })
 
-app.post('/api/onboard-complete', (_req, res) => {
-  db.prepare('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)').run('onboarded', '1')
+app.post('/api/onboard-complete', requireAuth, (req, res) => {
+  const uid = req.user!.id
+  db.prepare('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)').run(`onboarded:${uid}`, '1')
   res.json({ ok: true })
 })
 
-/** 清空演示数据，保留账号与配置 */
-app.post('/api/settings/clear-data', requireAuth, (_req, res) => {
+/** 清空当前账号的业务数据，保留账号与全局配置 */
+app.post('/api/settings/clear-data', requireAuth, (req, res) => {
+  const ownerId = req.user!.id
   tx(() => {
-    db.exec(`
-      DELETE FROM attendance;
-      DELETE FROM lesson_ledger;
-      DELETE FROM equipment_loans;
-      DELETE FROM sessions;
-      DELETE FROM schedule_rules;
-      DELETE FROM schedule_overrides;
-      DELETE FROM enrollments;
-      DELETE FROM students;
-      DELETE FROM classes;
-      DELETE FROM courses;
-      DELETE FROM time_slots;
-      DELETE FROM equipment;
-    `)
+    // 按 owner_id 删除当前账号的顶层实体（级联删除关联数据）
+    db.prepare('DELETE FROM attendance WHERE student_id IN (SELECT id FROM students WHERE owner_id = ?)').run(ownerId)
+    db.prepare('DELETE FROM lesson_ledger WHERE enrollment_id IN (SELECT id FROM enrollments WHERE student_id IN (SELECT id FROM students WHERE owner_id = ?))').run(ownerId)
+    db.prepare('DELETE FROM equipment_loans WHERE equipment_id IN (SELECT id FROM equipment WHERE owner_id = ?)').run(ownerId)
+    db.prepare('DELETE FROM sessions WHERE class_id IN (SELECT id FROM classes WHERE owner_id = ?)').run(ownerId)
+    db.prepare('DELETE FROM schedule_rules WHERE class_id IN (SELECT id FROM classes WHERE owner_id = ?)').run(ownerId)
+    db.prepare('DELETE FROM enrollments WHERE student_id IN (SELECT id FROM students WHERE owner_id = ?)').run(ownerId)
+    db.prepare('DELETE FROM students WHERE owner_id = ?').run(ownerId)
+    db.prepare('DELETE FROM classes WHERE owner_id = ?').run(ownerId)
+    db.prepare('DELETE FROM courses WHERE owner_id = ?').run(ownerId)
+    db.prepare('DELETE FROM time_slots WHERE owner_id = ?').run(ownerId)
+    db.prepare('DELETE FROM equipment WHERE owner_id = ?').run(ownerId)
   })
   res.json({ ok: true })
 })

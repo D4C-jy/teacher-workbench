@@ -7,6 +7,7 @@ import Placeholder from './pages/Placeholder'
 import Timetable from './pages/Timetable'
 import Students from './pages/Students'
 import Equipment from './pages/Equipment'
+import Settings from './pages/Settings'
 import Profile from './pages/Profile'
 
 function Protected() {
@@ -33,10 +34,7 @@ export default function App() {
         <Route path="/students" element={<Students />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/equipment" element={<Equipment />} />
-        <Route
-          path="/settings"
-          element={<Placeholder title="设置" desc="时段、提醒阈值、备份与恢复。M4 实现。" />}
-        />
+        <Route path="/settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

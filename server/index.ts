@@ -1,7 +1,7 @@
 import express from 'express'
 import fs from 'node:fs'
 import path from 'node:path'
-import { db, seedIfEmpty, todayStr, tx } from './db'
+import { db, seedIfEmpty, todayStr, tx, DB_FILE } from './db'
 import {
   hashPassword,
   verifyPassword,
@@ -158,7 +158,10 @@ app.get('/api/today', requireAuth, (req, res) => {
     )
     .all() as BalanceRow[]
 
-  const lowStudents = balances.filter((b) => b.balance <= 3).sort((a, b) => a.balance - b.balance)
+  const lowThreshold = Number(getCfg('low_threshold', '3'))
+  const lowStudents = balances
+    .filter((b) => b.balance <= lowThreshold)
+    .sort((a, b) => a.balance - b.balance)
 
   // 焦点班级：第一堂未取消的课
   const focus = sessions.find((s) => s.status !== 'cancelled') ?? sessions[0]
@@ -209,9 +212,9 @@ app.get('/api/today', requireAuth, (req, res) => {
     .prepare(
       `SELECT COUNT(*) AS n FROM enrollments
         WHERE status = 'active' AND expire_at IS NOT NULL
-          AND date(expire_at) <= date(?, '+30 day')`
+          AND date(expire_at) <= date(?, '+' || ? || ' day')`
     )
-    .get(date) as { n: number }
+    .get(date, String(Number(getCfg('expire_days', '30')))) as { n: number }
 
   const activeCount = sessions.filter((s) => s.status !== 'cancelled').length
   const attendTotal = sessions
@@ -234,6 +237,7 @@ app.get('/api/today', requireAuth, (req, res) => {
       present: s.status === 'done' ? presentMap.get(s.id) ?? 0 : classCounts.get(s.class_id) ?? 0,
       balanceSum: 0,
     })),
+    lowThreshold,
     stats: {
       sessions: activeCount,
       attendances: attendTotal,
@@ -543,6 +547,7 @@ app.get('/api/students', requireAuth, (req, res) => {
   const q = String(req.query.q ?? '').trim()
   const classId = Number(req.query.classId || 0)
   const rows = listStudents(q, classId)
+  const threshold = Number(getCfg('low_threshold', '3'))
   res.json({
     students: rows.map((r) => ({
       id: r.id,
@@ -553,11 +558,12 @@ app.get('/api/students', requireAuth, (req, res) => {
       enrollmentId: r.enrollment_id,
       balance: r.balance,
       expireAt: r.expire_at,
-      low: r.balance <= 3,
+      low: r.balance <= threshold,
     })),
+    threshold,
     summary: {
       total: rows.length,
-      low: rows.filter((r) => r.balance <= 3).length,
+      low: rows.filter((r) => r.balance <= threshold).length,
       zero: rows.filter((r) => r.balance <= 0).length,
       sum: Math.round(rows.reduce((n, r) => n + r.balance, 0) * 100) / 100,
     },
@@ -932,11 +938,97 @@ app.get('/api/export/equipment.csv', requireAuth, (_req, res) => {
   res.send('\ufeff' + head + body)
 })
 
+/* ---------------- 设置 ---------------- */
+
+function getCfg(key: string, fallback: string): string {
+  const row = db.prepare('SELECT value FROM app_config WHERE key = ?').get(key) as { value: string } | undefined
+  return row?.value ?? fallback
+}
+
+app.get('/api/settings', requireAuth, (_req, res) => {
+  const slots = db
+    .prepare(
+      `SELECT ts.id, ts.name, ts.start_time, ts.end_time,
+              (SELECT COUNT(*) FROM schedule_rules r WHERE r.slot_id = ts.id) AS rule_count,
+              (SELECT COUNT(*) FROM sessions se WHERE se.slot_id = ts.id) AS session_count
+         FROM time_slots ts ORDER BY ts.start_time`
+    )
+    .all()
+
+  res.json({
+    slots,
+    config: {
+      lowThreshold: Number(getCfg('low_threshold', '3')),
+      expireDays: Number(getCfg('expire_days', '30')),
+      semesterStart: getCfg('semester_start', ''),
+    },
+    dbFile: DB_FILE,
+  })
+})
+
+app.post('/api/settings', requireAuth, (req, res) => {
+  const low = Number(req.body?.lowThreshold)
+  const days = Number(req.body?.expireDays)
+  if (!Number.isFinite(low) || low < 0) return res.status(400).json({ error: '预警阈值不合法' })
+  if (!Number.isFinite(days) || days < 0) return res.status(400).json({ error: '到期提醒天数不合法' })
+
+  tx(() => {
+    db.prepare('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)').run('low_threshold', String(low))
+    db.prepare('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)').run('expire_days', String(days))
+    if (req.body?.semesterStart) {
+      db.prepare('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)').run(
+        'semester_start',
+        String(req.body.semesterStart)
+      )
+    }
+  })
+  res.json({ ok: true })
+})
+
+app.post('/api/slots', requireAuth, (req, res) => {
+  const start = String(req.body?.startTime ?? '')
+  const end = String(req.body?.endTime ?? '')
+  const name = String(req.body?.name ?? '').trim()
+  const id = ensureSlot(start, end)
+  if (!id) return res.status(400).json({ error: '时间格式不对，或结束早于开始' })
+  if (name) db.prepare('UPDATE time_slots SET name = ? WHERE id = ?').run(name, id)
+  res.json({ ok: true, id })
+})
+
+app.delete('/api/slots/:id', requireAuth, (req, res) => {
+  const id = Number(req.params.id)
+  const used = db
+    .prepare(
+      `SELECT (SELECT COUNT(*) FROM schedule_rules WHERE slot_id = ?) +
+              (SELECT COUNT(*) FROM sessions WHERE slot_id = ?) AS n`
+    )
+    .get(id, id) as { n: number }
+  if (used.n > 0) return res.status(409).json({ error: '这个时段还有课在用，先调整课表' })
+  const info = db.prepare('DELETE FROM time_slots WHERE id = ?').run(id)
+  if (Number(info.changes) === 0) return res.status(404).json({ error: '时段不存在' })
+  res.json({ ok: true })
+})
+
+app.get('/api/backup', requireAuth, (_req, res) => {
+  const stamp = todayStr().replace(/-/g, '')
+  const tmp = path.join(path.dirname(DB_FILE), `backup-${stamp}.db`)
+  try {
+    if (fs.existsSync(tmp)) fs.unlinkSync(tmp)
+    db.exec(`VACUUM INTO '${tmp.replace(/\\/g, '/')}'`)
+    res.download(tmp, `教培工作台备份-${stamp}.db`, (err) => {
+      if (!err && fs.existsSync(tmp)) fs.unlinkSync(tmp)
+    })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: '备份失败' })
+  }
+})
+
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
 /* ---------------- 静态资源（生产/Electron） ---------------- */
 
-const distDir = path.resolve(process.cwd(), 'dist')
+const distDir = process.env.TWB_DIST_DIR || path.resolve(process.cwd(), 'dist')
 if (fs.existsSync(distDir)) {
   app.use(express.static(distDir))
   app.get('*', (req, res, next) => {

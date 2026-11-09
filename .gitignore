@@ -1,5 +1,8 @@
 node_modules/
 dist/
+dist-server/
+release/
+release-app/
 data/
 *.log
 .DS_Store

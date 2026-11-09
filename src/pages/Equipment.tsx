@@ -137,6 +137,52 @@ export default function Equipment() {
     }
   }
 
+  async function printLabels() {
+    if (items.length === 0) return toast('还没有器材')
+    const QRCode = (await import('qrcode')).default
+    const cells = await Promise.all(
+      items.map(async (it) => {
+        const url = await QRCode.toDataURL(it.code, {
+          margin: 1,
+          width: 240,
+          color: { dark: '#000000', light: '#ffffff' },
+        })
+        const status = STATUS[it.status]?.label ?? ''
+        return `<div class="label">
+          <img src="${url}" alt="${it.code}" />
+          <div class="code">${it.code}</div>
+          <div class="sub">${it.model ?? ''}${it.model ? ' · ' : ''}${status}</div>
+        </div>`
+      })
+    )
+
+    const w = window.open('', '_blank')
+    if (!w) return toast('浏览器拦截了弹窗')
+    w.document.write(`<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8" />
+<title>器材标签</title>
+<style>
+  @page { size: A4; margin: 10mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Microsoft YaHei", sans-serif; background: #fff; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4mm; }
+  .label {
+    border: 1px dashed #c9c4b8; border-radius: 3mm; padding: 3mm;
+    display: flex; flex-direction: column; align-items: center; gap: 1.5mm;
+    break-inside: avoid; text-align: center;
+  }
+  .label img { width: 32mm; height: 32mm; display: block; }
+  .code { font-family: Consolas, monospace; font-size: 13pt; font-weight: 700; letter-spacing: .02em; }
+  .sub { font-size: 8pt; color: #666; }
+  .tip { margin: 0 0 4mm; font-size: 9pt; color: #888; }
+  @media print { .tip { display: none; } }
+</style></head><body>
+<p class="tip">共 ${items.length} 张标签，直接打印或另存为 PDF。切成小方块贴在机身侧面。</p>
+<div class="grid">${cells.join('')}</div>
+<script>window.onload = function () { setTimeout(function(){ window.print(); }, 300); }</script>
+</body></html>`)
+    w.document.close()
+  }
+
   async function exportCsv() {
     const token = localStorage.getItem('twb.token')
     const res = await fetch('/api/export/equipment.csv', { headers: token ? { Authorization: `Bearer ${token}` } : {} })
@@ -169,6 +215,9 @@ export default function Equipment() {
               <b className="amber">{summary.repair}</b>维修
             </span>
           </div>
+          <button className="pill small" onClick={printLabels} style={{ height: 32 }}>
+            打印标签
+          </button>
           <button className="pill small" onClick={exportCsv} style={{ height: 32 }}>
             导出台账
           </button>

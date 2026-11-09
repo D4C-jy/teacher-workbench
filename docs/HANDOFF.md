@@ -5,11 +5,11 @@
 
 ---
 
-## 当前状态（2026-11-09 · 第 6 次交接）
+## 当前状态（2026-11-09 · 第 7 次交接）
 
-**版本**：v0.6（M0 → M1 课表 → M2 课时 → 个人中心 → M3 器材 → **视觉与语义修订**）
-**形态**：浏览器版（双击 `启动工作台.bat`）
-**进度**：6 个页面中 5 个可用；只剩「设置」是占位。
+**版本**：v0.7（M0 → M1 → M2 → 个人中心 → M3 → 视觉修订 → **M4 设置/二维码/打包**）
+**形态**：**浏览器版**（`启动工作台.bat`）+ **安装包**（`release-app/TeacherWorkbench-Setup-0.1.0.exe`，116MB）
+**进度**：6 个页面**全部可用**。
 **字体**：已定稿为**微软雅黑**（`Microsoft YaHei UI` 优先），所有外挂字体已移除，CSS 从 481KB 降到 32KB。
 
 ### 本轮完成（v0.6）
@@ -21,12 +21,46 @@
 | 3 | 去掉无人机实操区 | ✅ | 今日平面图改为四间：教室 A（占 2/3 宽）/ 器材间 / 前台 / 走廊 |
 | 4 | 器材改为老师/机构取用 | ✅ | 文案全部改「取出 / 交回 / 取用人」；新增**用途**（上课/外拍/送修/调拨/其他），不再关联学生 |
 
-### 下一步（M4）
+### 本轮完成（v0.7）
 
-- 设置页：时段管理（增删改）、提醒阈值、数据备份/恢复
-- 器材二维码标签打印（贴机身，扫码查询）
-- **Electron 打包**：内嵌同一个 Express 服务，出 NSIS 安装包
-- 交付前检查：干净机器安装、卸载不丢数据、SmartScreen 说明
+| # | 需求 | 状态 | 实现要点 |
+|---|---|---|---|
+| 1 | 设置页 | ✅ | 账号 / 提醒阈值（真正生效）/ 学期开始日 / 时段增删 / 数据路径 |
+| 2 | 数据备份 | ✅ | `VACUUM INTO` 生成快照直接下载 `.db`；还原=覆盖文件 |
+| 3 | 二维码标签 | ✅ | `qrcode` 生成，A4 三列标签页，自动唤起打印，可另存 PDF |
+| 4 | Electron 打包 | ✅ | 内嵌 Express，随机端口 4600–4799，数据落 `%APPDATA%/教培工作台/data` |
+| 5 | 安装包 | ✅ | NSIS，可选安装目录，桌面 + 开始菜单快捷方式 |
+
+### 打包说明（重要）
+
+**标准 `npm run dist` 在本机沙箱环境下会失败**：electron-builder 解压 Electron 后要把
+`win-unpacked.tmp` 改名为 `win-unpacked`，重命名报 EPERM，回退的"复制+删除"又被
+删除保护拦下（78 个文件 > 阈值 50）。在普通机器上不会有这个问题。
+
+本机采用的绕法：
+
+```bash
+# 1. 手动组装可运行目录
+mkdir -p release-app/win-unpacked/resources/app
+cp -r node_modules/electron/dist/* release-app/win-unpacked/
+mv release-app/win-unpacked/electron.exe "release-app/win-unpacked/教培工作台.exe"
+cp -r dist dist-server electron package.json release-app/win-unpacked/resources/app/
+
+# 2. 只让 builder 做 NSIS 壳（跳过解压）
+npx electron-builder --win nsis --prepackaged release-app/win-unpacked
+```
+
+产物：`release-app/TeacherWorkbench-Setup-0.1.0.exe`（116 MB）
+
+**已知限制**：安装包未签名，首次运行会被 SmartScreen 拦一次（更多信息 → 仍要运行）；
+应用图标还是 Electron 默认图标。
+
+### 下一步（v1.0 收尾）
+
+- 换应用图标（`.ico`）
+- 器材二维码扫码查询（手机扫码后能打开对应器材详情）
+- 首次启动引导（布置教室座位）
+- 自动备份（每日一份，保留 14 天）
 
 ---
 
@@ -153,6 +187,14 @@ teacher-workbench/
 ---
 
 ## 变更记录
+
+### 2026-11-09 · v0.7
+- 设置页：账号、提醒阈值（接入 `/api/today` 与 `/api/students`）、到期天数、时段增删、数据库路径
+- 备份：`GET /api/backup` 用 `VACUUM INTO` 快照下载
+- 器材二维码标签：A4 三列，贴机身
+- Electron 打包：server 用 esbuild 打成单文件 CJS（1.2MB），Electron 主进程起服务再开窗
+- 验证：`ELECTRON_RUN_AS_NODE=1` 跑打包后的服务，health 与首页均 200
+- **坑**：沙箱删除保护导致 electron-builder 的目录重命名失败，改用 `--prepackaged`
 
 ### 2026-11-09 · v0.6
 - 人物重绘：三层灰阶 + 高光，去掉"纯黑块"感

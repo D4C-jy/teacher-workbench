@@ -430,7 +430,7 @@ button { cursor: pointer; }
 
 /* ---------------- 课表 ---------------- */
 
-.pill:disabled { opacity: .45; cursor: not-allowed; }
+.pill:disabled { opacity: 1; color: #b9b4a9; background: #f6f4ef; border-color: var(--line); cursor: not-allowed; }
 
 .tt-wrap { flex: 1; display: flex; gap: 12px; min-width: 0; }
 
@@ -952,3 +952,81 @@ button { cursor: pointer; }
   font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
   background: #f7f5f0; border-radius: 8px; padding: 9px 11px; word-break: break-all;
 }
+
+/* ---------------- 首次启动引导 ---------------- */
+
+.ob-wrap {
+  min-height: 100vh; display: grid; place-items: center; padding: 28px 20px;
+  background: var(--bg);
+}
+.ob-card {
+  width: 680px; max-width: 100%; background: #fff; border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(30, 26, 20, .06), 0 24px 60px -30px rgba(30, 26, 20, .35);
+  padding: 26px 30px 26px; display: flex; flex-direction: column; gap: 20px;
+}
+.ob-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.ob-head .login-brand { margin: 0; font-size: 15px; }
+.ob-steps { display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+.ob-step {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--ink-3); background: #f7f5f0;
+  border-radius: 999px; padding: 5px 11px;
+}
+.ob-step b {
+  width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center;
+  background: #e4e0d7; color: var(--ink-2); font-size: 10px; font-weight: 700;
+}
+.ob-step.on { background: var(--ink); color: #fff; }
+.ob-step.on b { background: #fff; color: var(--ink); }
+.ob-step.done { color: var(--ink-2); }
+.ob-step.done b { background: #cfe0c9; color: #37542f; }
+
+.ob-body { display: flex; flex-direction: column; gap: 12px; }
+.ob-body h2 { margin: 0; font-size: 21px; font-weight: 680; letter-spacing: -.01em; }
+.ob-desc { margin: 0; font-size: 13.5px; line-height: 1.8; color: var(--ink-2); }
+.ob-hint { margin: 0; font-size: 12px; color: var(--ink-3); }
+
+.ob-form { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+.ob-form label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ink-3); }
+.ob-form input {
+  height: 42px; border-radius: 10px; border: 1px solid var(--line);
+  padding: 0 13px; font-size: 13.5px; background: #fff; color: var(--ink); outline: none;
+}
+.ob-form input:focus { border-color: var(--ink); }
+.ob-form .pill { height: 42px; justify-content: center; margin-top: 4px; }
+
+.ob-path {
+  background: #fbfaf7; border-radius: 12px; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.ob-path-label { font-size: 11.5px; color: var(--ink-3); }
+.ob-path code {
+  font-family: var(--mono); font-size: 13px; color: var(--ink);
+  word-break: break-all; line-height: 1.5;
+}
+.ob-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ob-actions .pill { height: 36px; }
+.ob-input {
+  flex: 1; min-width: 220px; height: 36px; border-radius: 10px;
+  border: 1px solid var(--line); padding: 0 12px; font-size: 13px;
+  font-family: var(--mono); outline: none;
+}
+.ob-input:focus { border-color: var(--ink); }
+
+.ob-note {
+  background: #fdf6e9; border-radius: 12px; padding: 13px 15px;
+  font-size: 12.5px; line-height: 1.75; color: #7a5a1f;
+}
+
+.ob-choices { display: flex; flex-direction: column; gap: 10px; margin: 4px 0; }
+.ob-choice {
+  text-align: left; background: #fbfaf7; border: 1px solid #f0ece3;
+  border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px;
+  font-family: inherit;
+}
+.ob-choice b { font-size: 14px; color: var(--ink); font-weight: 650; }
+.ob-choice span { font-size: 12.5px; color: var(--ink-3); line-height: 1.6; }
+.ob-choice.on { background: #eef4fd; border-color: #cddff7; }
+
+.ob-foot { display: flex; justify-content: space-between; gap: 10px; margin-top: 6px; }
+.ob-foot .pill { height: 38px; padding: 0 20px; }

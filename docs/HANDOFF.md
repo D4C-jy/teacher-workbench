@@ -195,7 +195,30 @@ teacher-workbench/
   解决：`scripts/set-icon.cjs` 用 `resedit` 直接写 PE 资源（图标 + ProductName），已固化进 `pack:slim`
 - 验证方式：读回 exe 的 VersionInfo，ProductName 应为「教培工作台」
 
+## 首次启动引导
+
+- `Onboarding.tsx`：三步（创建账号 → 数据位置 → 数据来源），完成后写 `app_config.onboarded=1`
+- 进度存在 `localStorage['twb.onboard.step']`，重启后能接着走
+- `App.tsx` 的 `Gate` 组件：`GET /api/onboard-state` 判断是否已完成，未完成则渲染引导、不渲染路由
+
+### 原生能力桥（只有 Electron 有）
+
+`electron/main.cjs` 把 `dialog.showOpenDialog` 和 `app.relaunch` 挂到 `global.__twbNative`，
+后端通过 `/api/native/pick-folder`、`/api/native/relaunch` 调用。浏览器环境返回 501，前端自动降级为手动输入。
+
+### 端口策略（重要）
+
+**必须固定 4600**，否则每次启动 origin 变化，`localStorage` 里的登录 token 会失效、每次都要重新登录。
+`pickPort()` 从 4600 开始探测，被占用才顺延。
+
 ## 变更记录
+
+### 2026-11-09 · v1.1（首次启动引导）
+- 三步引导页，安装后不再"一进来就开始用"
+- 数据位置步骤直接显示当前目录 + 系统文件夹选择框（不再手打路径）
+- 设置页「更改位置」同样改为弹框；迁移后提供「立即重启生效」按钮
+- 新增接口：`/api/onboard-state`、`/api/onboard-complete`、`/api/settings/clear-data`、`/api/native/*`
+- **修复隐患**：端口改为优先固定 4600，避免重启后 origin 变化导致登录态丢失
 
 ### 2026-11-09 · v1.0（应用图标）
 - 全站换图标：安装包 / 桌面快捷方式 / 窗口 / 任务栏 / favicon / 顶栏 / 登录页

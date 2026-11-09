@@ -17,11 +17,32 @@ const locationFile = path.join(home, 'location.json')
 const appRoot = path.join(__dirname, '..')
 process.env.TWB_DIST_DIR = path.join(appRoot, 'dist')
 
-// 随机端口，避免和开发环境的 4317 冲突
-const PORT = 4600 + Math.floor(Math.random() * 200)
-process.env.PORT = String(PORT)
+// 端口优先固定 4600：origin 稳定，登录态（localStorage）才能跨重启保留
+const BASE_PORT = 4600
+let PORT = BASE_PORT
 
 let mainWindow = null
+
+/**
+ * 暴露给本地服务调用的原生能力。
+ * 前端通过 /api/native/* 触发，只有 Electron 里才存在，浏览器版会返回 501。
+ */
+global.__twbNative = {
+  async pickFolder(defaultPath) {
+    const r = await dialog.showOpenDialog({
+      title: '选择数据存放位置',
+      message: '学员、课时、课表等数据会保存在这里。建议放在非系统盘，重装系统也不丢。',
+      buttonLabel: '就用这个文件夹',
+      defaultPath: defaultPath || undefined,
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    return r.canceled || r.filePaths.length === 0 ? null : r.filePaths[0]
+  },
+  relaunch() {
+    app.relaunch()
+    app.exit(0)
+  },
+}
 
 /** 首次启动让用户选数据目录，避免默认落到 C 盘 */
 async function ensureDataLocation() {
@@ -64,6 +85,23 @@ async function ensureDataLocation() {
       `无法写入 ${chosen}，将使用默认位置。\n${String(e && e.message ? e.message : e)}`
     )
   }
+}
+
+function isPortFree(port) {
+  return new Promise((resolve) => {
+    const net = require('node:net')
+    const srv = net.createServer()
+    srv.once('error', () => resolve(false))
+    srv.once('listening', () => srv.close(() => resolve(true)))
+    srv.listen(port, '127.0.0.1')
+  })
+}
+
+async function pickPort() {
+  for (let p = BASE_PORT; p < BASE_PORT + 30; p++) {
+    if (await isPortFree(p)) return p
+  }
+  return BASE_PORT + Math.floor(Math.random() * 100)
 }
 
 function waitForServer(tries, onReady) {
@@ -111,6 +149,9 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   await ensureDataLocation()
+
+  PORT = await pickPort()
+  process.env.PORT = String(PORT)
 
   try {
     require(path.join(appRoot, 'dist-server', 'index.cjs'))

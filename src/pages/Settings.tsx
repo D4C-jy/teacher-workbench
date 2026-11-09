@@ -17,6 +17,7 @@ interface SettingsData {
   dbFile: string
   dataDir: string
   homeDir: string
+  canPickFolder: boolean
 }
 
 export default function Settings() {
@@ -31,6 +32,7 @@ export default function Settings() {
   const [showMove, setShowMove] = useState(false)
   const [movePath, setMovePath] = useState('')
   const [moving, setMoving] = useState(false)
+  const [needsRestart, setNeedsRestart] = useState(false)
 
   async function load() {
     try {
@@ -123,6 +125,36 @@ export default function Settings() {
       toast(err instanceof Error ? err.message : '迁移失败')
     } finally {
       setMoving(false)
+    }
+  }
+
+  /** 有原生对话框就直接弹，没有就退回手动输入 */
+  async function changeLocation() {
+    if (!data?.canPickFolder) {
+      setMovePath(data?.dataDir ?? '')
+      setShowMove(true)
+      return
+    }
+    setMoving(true)
+    try {
+      const r = await api<{ path: string | null }>('/native/pick-folder', { body: { defaultPath: data.dataDir } })
+      if (!r.path) return
+      const m = await api<{ dataDir: string }>('/settings/move-data', { body: { targetDir: r.path } })
+      setNeedsRestart(true)
+      toast(`已迁移到 ${m.dataDir}`)
+      await load()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '迁移失败')
+    } finally {
+      setMoving(false)
+    }
+  }
+
+  async function restartNow() {
+    try {
+      await api('/native/relaunch', { method: 'POST' })
+    } catch {
+      toast('请手动关闭并重新打开程序')
     }
   }
 
@@ -266,15 +298,22 @@ export default function Settings() {
         </p>
         <div className="set-path">{data.dataDir}</div>
         <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-          <button className="pill small" onClick={() => { setMovePath(data.dataDir); setShowMove(true) }} style={{ height: 32 }}>
-            更改位置
+          <button className="pill small" onClick={changeLocation} disabled={moving} style={{ height: 32 }}>
+            {moving ? '处理中…' : data.canPickFolder ? '选择新位置…' : '更改位置'}
           </button>
+          {needsRestart && (
+            <button className="pill small dark" onClick={restartNow} style={{ height: 32 }}>
+              立即重启生效
+            </button>
+          )}
           <button className="pill small dark" onClick={backup} style={{ height: 32 }}>
             下载备份
           </button>
         </div>
         <p className="set-desc" style={{ marginTop: 6 }}>
-          更改位置会把当前数据复制到新目录，<b>重启程序后生效</b>，原目录文件不会被删除。
+          {data.canPickFolder
+            ? '点「选择新位置」会弹出文件夹选择框，选完自动复制过去，重启程序后生效，原目录文件保留。'
+            : '更改位置会把当前数据复制到新目录，重启程序后生效，原目录文件不会被删除。'}
         </p>
       </section>
 

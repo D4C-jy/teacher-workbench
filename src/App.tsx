@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './lib/auth'
 import AppShell from './layout/AppShell'
@@ -9,6 +10,7 @@ import Students from './pages/Students'
 import Equipment from './pages/Equipment'
 import Settings from './pages/Settings'
 import Profile from './pages/Profile'
+import Onboarding, { type OnboardState } from './pages/Onboarding'
 
 function Protected() {
   const { user, loading } = useAuth()
@@ -24,8 +26,25 @@ function LoginRoute() {
   return <Login />
 }
 
+/** 首次启动先走引导，完成后再进正常界面 */
+function Gate({ children }: { children: React.ReactNode }) {
+  const [state, setState] = useState<OnboardState | null>(null)
+
+  useEffect(() => {
+    fetch('/api/onboard-state')
+      .then((r) => r.json())
+      .then(setState)
+      .catch(() => setState({ onboarded: true, hasUser: true, dataDir: '', defaultDataDir: '', canPickFolder: false }))
+  }, [])
+
+  if (!state) return <div className="loading">加载中…</div>
+  if (!state.onboarded) return <Onboarding state={state} onDone={() => setState({ ...state, onboarded: true })} />
+  return <>{children}</>
+}
+
 export default function App() {
   return (
+    <Gate>
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
       <Route element={<Protected />}>
@@ -38,5 +57,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </Gate>
   )
 }

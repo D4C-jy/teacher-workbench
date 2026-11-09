@@ -965,6 +965,7 @@ app.get('/api/settings', requireAuth, (_req, res) => {
     dbFile: DB_FILE,
     dataDir: DATA_DIR,
     homeDir: HOME_DIR,
+    canPickFolder: Boolean(nativeApi()?.pickFolder),
   })
 })
 
@@ -1048,6 +1049,69 @@ app.get('/api/backup', requireAuth, (_req, res) => {
     console.error(e)
     res.status(500).json({ error: '备份失败' })
   }
+})
+
+/* ---------------- 原生能力桥（仅 Electron 存在） ---------------- */
+
+function nativeApi(): any {
+  return (globalThis as any).__twbNative
+}
+
+app.post('/api/native/pick-folder', async (req, res) => {
+  const api = nativeApi()
+  if (!api?.pickFolder) return res.status(501).json({ error: '当前环境不支持系统对话框' })
+  try {
+    const picked = await api.pickFolder(String(req.body?.defaultPath ?? ''))
+    res.json({ path: picked })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: '打开选择框失败' })
+  }
+})
+
+app.post('/api/native/relaunch', (_req, res) => {
+  const api = nativeApi()
+  if (!api?.relaunch) return res.status(501).json({ error: '当前环境不支持自动重启' })
+  res.json({ ok: true })
+  setTimeout(() => api.relaunch(), 300)
+})
+
+/* ---------------- 首次启动引导 ---------------- */
+
+app.get('/api/onboard-state', (_req, res) => {
+  res.json({
+    onboarded: getCfg('onboarded', '0') === '1',
+    hasUser: countUsers() > 0,
+    dataDir: DATA_DIR,
+    defaultDataDir: path.join(HOME_DIR, 'data'),
+    canPickFolder: Boolean(nativeApi()?.pickFolder),
+  })
+})
+
+app.post('/api/onboard-complete', (_req, res) => {
+  db.prepare('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)').run('onboarded', '1')
+  res.json({ ok: true })
+})
+
+/** 清空演示数据，保留账号与配置 */
+app.post('/api/settings/clear-data', requireAuth, (_req, res) => {
+  tx(() => {
+    db.exec(`
+      DELETE FROM attendance;
+      DELETE FROM lesson_ledger;
+      DELETE FROM equipment_loans;
+      DELETE FROM sessions;
+      DELETE FROM schedule_rules;
+      DELETE FROM schedule_overrides;
+      DELETE FROM enrollments;
+      DELETE FROM students;
+      DELETE FROM classes;
+      DELETE FROM courses;
+      DELETE FROM time_slots;
+      DELETE FROM equipment;
+    `)
+  })
+  res.json({ ok: true })
 })
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))

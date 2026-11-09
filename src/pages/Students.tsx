@@ -71,6 +71,8 @@ export default function Students() {
   const [busy, setBusy] = useState(false)
   const [flash, setFlash] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [showEdit, setShowEdit] = useState(false)
+  const [editForm, setEditForm] = useState({ name: '', gender: '', guardianName: '', guardianPhone: '' })
   const [addForm, setAddForm] = useState({
     name: '',
     gender: '',
@@ -179,6 +181,48 @@ export default function Students() {
       setTimeout(() => setFlash(''), 2400)
     } catch (err) {
       setFlash(err instanceof Error ? err.message : '充值失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function openEdit() {
+    if (!detail) return
+    setEditForm({
+      name: detail.student.name,
+      gender: detail.student.gender ?? '',
+      guardianName: detail.student.guardian_name ?? '',
+      guardianPhone: detail.student.guardian_phone ?? '',
+    })
+    setShowEdit(true)
+  }
+
+  async function doEdit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!activeId) return
+    if (!editForm.name.trim()) {
+      setFlash('姓名不能为空')
+      return
+    }
+    setBusy(true)
+    try {
+      await api(`/students/${activeId}`, {
+        method: 'PATCH',
+        body: {
+          name: editForm.name.trim(),
+          gender: editForm.gender || undefined,
+          guardianName: editForm.guardianName.trim(),
+          guardianPhone: editForm.guardianPhone.trim(),
+        },
+      })
+      setShowEdit(false)
+      setFlash('已保存')
+      await load()
+      const d = await api<Detail>(`/students/${activeId}`)
+      setDetail(d)
+      setTimeout(() => setFlash(''), 2400)
+    } catch (err) {
+      setFlash(err instanceof Error ? err.message : '保存失败')
     } finally {
       setBusy(false)
     }
@@ -316,6 +360,9 @@ export default function Students() {
               <span className="st-av big">
                 <Figure size={30} />
               </span>
+              <button className="pill small" onClick={openEdit} style={{ marginLeft: 'auto', height: 28 }}>
+                编辑
+              </button>
             </div>
 
             {detail.enrollments.map((e) => (
@@ -427,6 +474,45 @@ export default function Students() {
               </button>
               <button type="submit" className="pill small dark" disabled={busy}>
                 {busy ? '保存中…' : '确认充值'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showEdit && (
+        <div className="mask" onClick={() => setShowEdit(false)}>
+          <form className="dlg" style={{ width: 440 }} onClick={(e) => e.stopPropagation()} onSubmit={doEdit}>
+            <div className="dlg-head">
+              <h3>编辑学员档案</h3>
+              <button type="button" className="tt-close" onClick={() => setShowEdit(false)}>×</button>
+            </div>
+            <div className="dlg-body" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <label>
+                姓名 *
+                <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} autoFocus />
+              </label>
+              <label>
+                性别
+                <select value={editForm.gender} onChange={(e) => setEditForm({ ...editForm, gender: e.target.value })}>
+                  <option value="">（未设置）</option>
+                  <option value="male">男</option>
+                  <option value="female">女</option>
+                </select>
+              </label>
+              <label>
+                家长姓名
+                <input value={editForm.guardianName} onChange={(e) => setEditForm({ ...editForm, guardianName: e.target.value })} placeholder="可留空" />
+              </label>
+              <label>
+                家长电话
+                <input value={editForm.guardianPhone} onChange={(e) => setEditForm({ ...editForm, guardianPhone: e.target.value })} placeholder="可留空" />
+              </label>
+            </div>
+            <div className="dlg-foot">
+              <button type="button" className="pill small" onClick={() => setShowEdit(false)}>取消</button>
+              <button type="submit" className="pill small dark" disabled={busy}>
+                {busy ? '保存中…' : '保存'}
               </button>
             </div>
           </form>

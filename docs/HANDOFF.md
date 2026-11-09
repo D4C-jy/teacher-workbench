@@ -303,6 +303,13 @@ POST /api/import/cancel → 反悔，删掉 pending 文件
 
 ## 变更记录
 
+### 2026-11-09 · v1.7.3（未分班学员课时 + 编辑学员）
+- **课时 bug**：新增学员时 `if (classId)` 把"报名+流水"和"分班"耦合，未分班学员填了课时也不记录。
+- 修复：`lessons > 0 || classId` 时都建报名；未分班自动挂到内置「未分班」班级（ensureUnassignedClass 找/建）。
+  该班级在 /api/meta 和 /api/classes 里过滤掉（name != '未分班'），前端不显示。
+- 编辑学员：PATCH /api/students/:id 更新姓名/性别/家长姓名/家长电话（重名检查）；前端详情头部「编辑」按钮 + 弹窗。
+- 排查其余 INNER JOIN：其余 JOIN enrollments 都是合理（课次/流水/统计必须有报名关系），仅 listStudents 一处需要 LEFT JOIN。
+
 ### 2026-11-09 · v1.7.2（未分班学员显示 + 删除学员）
 - **根因**：`listStudents` 用 INNER JOIN enrollments，未分班学员（无报名记录）被排除，列表和人数都不显示。
 - 修复：改 LEFT JOIN，未分班学员 class_name 显示「未分班」、course_name「—」，GROUP BY s.id；按班级筛选时未分班学员仍被正确排除。

@@ -336,7 +336,8 @@ app.get('/api/meta', requireAuth, (_req, res) => {
     classes: db
       .prepare(
         `SELECT cl.id, cl.name, cl.course_id, cl.capacity, c.name AS course_name
-           FROM classes cl JOIN courses c ON c.id = cl.course_id ORDER BY cl.id`
+           FROM classes cl JOIN courses c ON c.id = cl.course_id
+          WHERE cl.name != '未分班' ORDER BY cl.id`
       )
       .all(),
     slots: db.prepare('SELECT id, name, start_time, end_time FROM time_slots ORDER BY start_time').all(),
@@ -351,7 +352,8 @@ app.get('/api/classes', requireAuth, (_req, res) => {
     .prepare(
       `SELECT cl.id, cl.name, cl.course_id, cl.capacity, c.name AS course_name,
               (SELECT COUNT(*) FROM enrollments e WHERE e.class_id = cl.id AND e.status = 'active') AS student_count
-         FROM classes cl JOIN courses c ON c.id = cl.course_id ORDER BY cl.id`
+         FROM classes cl JOIN courses c ON c.id = cl.course_id
+        WHERE cl.name != '未分班' ORDER BY cl.id`
     )
     .all()
 
@@ -751,6 +753,23 @@ app.get('/api/students/:id', requireAuth, (req, res) => {
   res.json({ student, enrollments, ledger })
 })
 
+/** 找或建「未分班」班级（给没选班级但有课时的学员用） */
+function ensureUnassignedClass(): { id: number; course_id: number } {
+  const existing = db.prepare("SELECT id, course_id FROM classes WHERE name = '未分班'").get() as
+    | { id: number; course_id: number }
+    | undefined
+  if (existing) return existing
+
+  // 需要一个课程，取第一个，没有就建一个「通用」
+  let course = db.prepare('SELECT id FROM courses ORDER BY id LIMIT 1').get() as { id: number } | undefined
+  if (!course) {
+    const info = db.prepare("INSERT INTO courses (name, default_minutes) VALUES ('通用', 90)").run()
+    course = { id: Number(info.lastInsertRowid) }
+  }
+  const info = db.prepare("INSERT INTO classes (course_id, name, capacity, note) VALUES (?, '未分班', 100, '系统内置，未分班学员暂存')").run(course.id)
+  return { id: Number(info.lastInsertRowid), course_id: course.id }
+}
+
 /** 新增学员：姓名/性别/家长联系方式/报名课包 */
 app.post('/api/students', requireAuth, (req, res) => {
   const name = String(req.body?.name ?? '').trim()
@@ -774,18 +793,25 @@ app.post('/api/students', requireAuth, (req, res) => {
         .run(name, gender, guardianName, guardianPhone).lastInsertRowid
     )
 
-    // 报名课包：选了班级就建一条报名 + 充值流水
-    if (classId) {
-      const cls = db
-        .prepare('SELECT id, course_id FROM classes WHERE id = ?')
-        .get(classId) as { id: number; course_id: number } | undefined
+    // 报名课包：有课时就建报名 + 充值流水
+    if (lessons > 0 || classId) {
+      let cls: { id: number; course_id: number } | undefined
+      if (classId) {
+        cls = db.prepare('SELECT id, course_id FROM classes WHERE id = ?').get(classId) as
+          | { id: number; course_id: number }
+          | undefined
+      }
+      // 未选班级但有课时：挂到内置「未分班」班级
+      if (!cls) {
+        cls = ensureUnassignedClass()
+      }
       if (cls) {
         const eid = Number(
           db
             .prepare(
               'INSERT INTO enrollments (student_id, class_id, course_id, purchased_lessons, bonus_lessons) VALUES (?, ?, ?, ?, 0)'
             )
-            .run(sid, classId, cls.course_id, lessons).lastInsertRowid
+            .run(sid, cls.id, cls.course_id, lessons).lastInsertRowid
         )
         if (lessons > 0) {
           db.prepare(
@@ -797,6 +823,33 @@ app.post('/api/students', requireAuth, (req, res) => {
   })
 
   res.json({ ok: true, id: sid })
+})
+
+/** 更新学员档案：姓名/性别/家长姓名/家长电话 */
+app.patch('/api/students/:id', requireAuth, (req, res) => {
+  const id = Number(req.params.id)
+  const name = String(req.body?.name ?? '').trim()
+  const gender = ['male', 'female'].includes(req.body?.gender) ? req.body.gender : null
+  const guardianName = String(req.body?.guardianName ?? '').trim() || null
+  const guardianPhone = String(req.body?.guardianPhone ?? '').trim() || null
+
+  if (!name) return res.status(400).json({ error: '姓名不能为空' })
+
+  const student = db.prepare('SELECT id FROM students WHERE id = ?').get(id)
+  if (!student) return res.status(404).json({ error: '学员不存在' })
+
+  // 重名检查（排除自己）
+  const dup = db.prepare('SELECT id FROM students WHERE name = ? AND archived = 0 AND id != ?').get(name, id)
+  if (dup) return res.status(409).json({ error: '这个姓名的学员已存在' })
+
+  db.prepare('UPDATE students SET name = ?, gender = ?, guardian_name = ?, guardian_phone = ? WHERE id = ?').run(
+    name,
+    gender,
+    guardianName,
+    guardianPhone,
+    id
+  )
+  res.json({ ok: true })
 })
 
 /** 删除学员：软删除（archived=1），保留流水，可追溯 */

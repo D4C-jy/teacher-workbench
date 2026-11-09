@@ -13,11 +13,12 @@ export interface OnboardState {
 const STEP_KEY = 'twb.onboard.step'
 
 export default function Onboarding({ state, onDone }: { state: OnboardState; onDone: () => void }) {
-  const { register } = useAuth()
+  const { register, login } = useAuth()
 
+  // 初始 step：始终从 0（登录/创建账号）开始；如果之前走到一半，恢复进度
   const [step, setStep] = useState(() => {
     const saved = Number(localStorage.getItem(STEP_KEY) ?? '0')
-    return state.hasUser ? Math.max(saved, 1) : Math.min(saved, 1)
+    return Number.isFinite(saved) ? Math.min(saved, 2) : 0
   })
   const [dataDir, setDataDir] = useState(state.dataDir)
   const [pickedAgain, setPickedAgain] = useState(false)
@@ -69,6 +70,20 @@ export default function Onboarding({ state, onDone }: { state: OnboardState; onD
     }
   }
 
+  async function doLogin(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    setBusy(true)
+    try {
+      await login(form.username.trim(), form.password)
+      setStep(1)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '登录失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function createAccount(e: React.FormEvent) {
     e.preventDefault()
     setError('')
@@ -98,7 +113,7 @@ export default function Onboarding({ state, onDone }: { state: OnboardState; onD
     }
   }
 
-  const steps = ['创建账号', '数据位置', '开始使用']
+  const steps = [state.hasUser ? '登录' : '创建账号', '数据位置', '开始使用']
 
   return (
     <div className="ob-wrap">
@@ -121,50 +136,84 @@ export default function Onboarding({ state, onDone }: { state: OnboardState; onD
         {/* 第 1 步：账号 */}
         {step === 0 && (
           <section className="ob-body">
-            <h2>先建一个账号</h2>
-            <p className="ob-desc">这台电脑上用的账号，密码用 scrypt 加盐存在本机，不上传。</p>
-            <form className="ob-form" onSubmit={createAccount}>
-              <label>
-                用户名
-                <input
-                  autoFocus
-                  value={form.username}
-                  onChange={(e) => setForm({ ...form, username: e.target.value })}
-                  placeholder="例如 wanglaoshi"
-                  required
-                />
-              </label>
-              <label>
-                显示名（可留空）
-                <input
-                  value={form.displayName}
-                  onChange={(e) => setForm({ ...form, displayName: e.target.value })}
-                  placeholder="例如 王老师"
-                />
-              </label>
-              <label>
-                密码（至少 6 位）
-                <input
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  required
-                />
-              </label>
-              <label>
-                确认密码
-                <input
-                  type="password"
-                  value={form.confirm}
-                  onChange={(e) => setForm({ ...form, confirm: e.target.value })}
-                  required
-                />
-              </label>
-              {error && <div className="err">{error}</div>}
-              <button className="pill dark" type="submit" disabled={busy}>
-                {busy ? '创建中…' : '下一步'}
-              </button>
-            </form>
+            {state.hasUser ? (
+              <>
+                <h2>登录你的账号</h2>
+                <p className="ob-desc">这台电脑已经注册过账号，请登录后继续。</p>
+                <form className="ob-form" onSubmit={doLogin}>
+                  <label>
+                    用户名
+                    <input
+                      autoFocus
+                      value={form.username}
+                      onChange={(e) => setForm({ ...form, username: e.target.value })}
+                      placeholder="用户名"
+                      required
+                    />
+                  </label>
+                  <label>
+                    密码
+                    <input
+                      type="password"
+                      value={form.password}
+                      onChange={(e) => setForm({ ...form, password: e.target.value })}
+                      required
+                    />
+                  </label>
+                  {error && <div className="err">{error}</div>}
+                  <button className="pill dark" type="submit" disabled={busy}>
+                    {busy ? '登录中…' : '登录'}
+                  </button>
+                </form>
+              </>
+            ) : (
+              <>
+                <h2>先建一个账号</h2>
+                <p className="ob-desc">这台电脑上用的账号，密码用 scrypt 加盐存在本机，不上传。</p>
+                <form className="ob-form" onSubmit={createAccount}>
+                  <label>
+                    用户名
+                    <input
+                      autoFocus
+                      value={form.username}
+                      onChange={(e) => setForm({ ...form, username: e.target.value })}
+                      placeholder="例如 wanglaoshi"
+                      required
+                    />
+                  </label>
+                  <label>
+                    显示名（可留空）
+                    <input
+                      value={form.displayName}
+                      onChange={(e) => setForm({ ...form, displayName: e.target.value })}
+                      placeholder="例如 王老师"
+                    />
+                  </label>
+                  <label>
+                    密码（至少 6 位）
+                    <input
+                      type="password"
+                      value={form.password}
+                      onChange={(e) => setForm({ ...form, password: e.target.value })}
+                      required
+                    />
+                  </label>
+                  <label>
+                    确认密码
+                    <input
+                      type="password"
+                      value={form.confirm}
+                      onChange={(e) => setForm({ ...form, confirm: e.target.value })}
+                      required
+                    />
+                  </label>
+                  {error && <div className="err">{error}</div>}
+                  <button className="pill dark" type="submit" disabled={busy}>
+                    {busy ? '创建中…' : '下一步'}
+                  </button>
+                </form>
+              </>
+            )}
           </section>
         )}
 

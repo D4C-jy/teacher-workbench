@@ -214,7 +214,36 @@ teacher-workbench/
 - `GET /api/students/:id` 返回 gender，详情页展示性别标签 + 家长联系方式
 - 学员页工具栏加「＋ 新增学员」，表单弹窗两列排布
 
-## 续费率公式 & 自动更新（v2.0 进行中）
+## 续费率公式 & 自动更新（v2.0 完成）
+
+### 续费率
+- 公式：**续费率 = 本月续费人数 ÷ 应续费人数（余额 < 10 课时）**，允许超过 100%，新报名也算续费。
+- 实现：`/api/stats/monthly` renewals.total 改为 shouldRenew（HAVING SUM(delta) < 10），renewed 统计所有本月 charge（报名+续费）。
+
+### 自动更新（electron-updater，已跑通）
+- 仓库：https://github.com/D4C-jy/teacher-workbench（私有），代码已推送。
+- 发布：v2.0.0 Release 含安装包 + latest.yml + blockmap。
+- electron-updater：main.cjs 里 update-available 弹窗询问下载、update-downloaded 提示重启、quitAndInstall。
+- app-update.yml：pack-slim.mjs 打包时自动生成到 resources/，内容 provider=github owner=D4C-jy repo=teacher-workbench。
+- 检查更新：`checkForUpdates()` 仅 `app.isPackaged` 时运行，启动 3 秒后触发。
+
+### 网络与代理（重要）
+- **本机直连 GitHub 不通**（dial tcp 超时），需走代理 127.0.0.1:7890。
+- 已配置：git 全局 http/https.proxy、用户级环境变量 HTTPS_PROXY/HTTP_PROXY、gh 登录。
+- 发布/推送命令前需 `export HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890`。
+
+### 发布新版本流程
+```bash
+# 1. 改 package.json version
+# 2. 打包（含 app-update.yml）
+node scripts/pack-slim.mjs
+# 3. 走代理创建 release + 上传
+export HTTPS_PROXY=http://127.0.0.1:7890 HTTP_PROXY=http://127.0.0.1:7890
+gh release create vX.Y.Z --title "教培工作台 vX.Y.Z" --notes "说明" --target master
+gh release upload vX.Y.Z release-slim/TeacherWorkbench-Setup-X.Y.Z.exe release-slim/latest.yml release-slim/TeacherWorkbench-Setup-X.Y.Z.exe.blockmap --clobber
+```
+
+## 班级管理 & 消课三态（v1.5）
 
 - 续费率公式改为：**续费率 = 本月续费人数 ÷ 本月应续费人数**，应续费人数 = 当前余额 < 10 课时的在读学员。
   `GET /api/stats/monthly` 的 renewals.total 从"在读人数"改为"应续费人数"（HAVING SUM(delta) < 10）。

@@ -12,10 +12,11 @@
     "preview": "vite preview",
     "serve": "tsx server/index.ts",
     "build:server": "esbuild server/index.ts --bundle --platform=node --format=cjs --outfile=dist-server/index.cjs",
-    "build:all": "npm run build && npm run build:server",
+    "build:all": "npm run build && npm run build:server && npm run build:main",
     "app": "npm run build:all && electron .",
     "dist": "npm run build:all && electron-builder --win nsis",
-    "pack:slim": "npm run build:all && node scripts/pack-slim.mjs"
+    "pack:slim": "npm run build:all && node scripts/pack-slim.mjs",
+    "build:main": "esbuild electron/main.cjs --bundle --platform=node --format=cjs --external:electron --outfile=dist-main/main.cjs"
   },
   "dependencies": {
     "electron-updater": "^6.8.11",
@@ -42,7 +43,7 @@
     "typescript": "^5.7.2",
     "vite": "^6.0.5"
   },
-  "main": "electron/main.cjs",
+  "main": "dist-main/main.cjs",
   "build": {
     "appId": "com.teacher.workbench",
     "productName": "教培工作台",

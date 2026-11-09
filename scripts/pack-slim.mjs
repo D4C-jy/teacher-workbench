@@ -56,7 +56,7 @@ if (runtimeReady) {
 }
 
 console.log('· 复制应用')
-for (const item of ['dist', 'dist-server', 'electron', 'package.json']) {
+for (const item of ['dist', 'dist-server', 'dist-main', 'package.json']) {
   cpSync(path.join(root, item), path.join(appDir, item), { recursive: true })
 }
 

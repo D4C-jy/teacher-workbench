@@ -303,6 +303,11 @@ POST /api/import/cancel → 反悔，删掉 pending 文件
 
 ## 变更记录
 
+### 2026-11-09 · v1.9.0（删除班级 + 新课程）
+- 删除班级：DELETE /api/classes/:id，学员转「未分班」、删课次(级联attendance/ledger)、删周规则、删班级；「未分班」系统班拒绝删除。
+- 新课程：C++/机械臂/XRmaker/3D 打印，seed + 迁移按名补齐。
+- 顺手删掉用户残留的"123"班级。
+
 ### 2026-11-09 · v1.8.0（未分班置顶 + 编辑分班）
 - 未分班学员置顶：listStudents `ORDER BY (cl.name='未分班') DESC, balance ASC`；列表行加琥珀色「未分班」标签。
 - 编辑学员加分班：PATCH /api/students/:id 支持 classId，传了且与当前不同则转班（旧报名置 inactive + 新报名）；前端编辑弹窗加「分班」下拉（读 detail.enrollments 当前班 + classes 列表）。

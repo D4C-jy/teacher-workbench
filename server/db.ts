@@ -231,6 +231,11 @@ CREATE INDEX IF NOT EXISTS idx_rules_class ON schedule_rules(class_id);
   if (!scols.some((c) => c.name === 'gender')) {
     db.exec('ALTER TABLE students ADD COLUMN gender TEXT')
   }
+  // 补充课程
+  for (const cn of ['C++', '机械臂', 'XRmaker', '3D 打印']) {
+    const has = db.prepare('SELECT id FROM courses WHERE name = ?').get(cn)
+    if (!has) db.prepare('INSERT INTO courses (name, default_minutes) VALUES (?, 90)').run(cn)
+  }
   db.exec(`
     UPDATE sessions SET rule_id = (
       SELECT r.id FROM schedule_rules r
@@ -298,6 +303,11 @@ export function seedIfEmpty() {
     const cDrone = run('INSERT INTO courses (name, default_minutes, note) VALUES (?, ?, ?)', '无人机编程', 90, '入门到竞赛')
     const cBlock = run('INSERT INTO courses (name, default_minutes, note) VALUES (?, ?, ?)', '图形化编程', 90, 'Scratch / 图形化')
     const cPy = run('INSERT INTO courses (name, default_minutes, note) VALUES (?, ?, ?)', 'Python 进阶', 90, '语法与项目')
+    // 其余课程（迁移时也会按名字补，见下方）
+    run("INSERT INTO courses (name, default_minutes, note) VALUES ('C++', 90, '信息学竞赛')")
+    run("INSERT INTO courses (name, default_minutes, note) VALUES ('机械臂', 90, '机器人')")
+    run("INSERT INTO courses (name, default_minutes, note) VALUES ('XRmaker', 90, 'XR 创作')")
+    run("INSERT INTO courses (name, default_minutes, note) VALUES ('3D 打印', 90, '建模与打印')")
 
     const clA = run('INSERT INTO classes (course_id, name, capacity) VALUES (?, ?, ?)', cDrone, '无人机 A 班', 9)
     const clB = run('INSERT INTO classes (course_id, name, capacity) VALUES (?, ?, ?)', cBlock, '图形化 B 班', 12)

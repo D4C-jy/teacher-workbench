@@ -409,6 +409,43 @@ app.post('/api/classes', requireAuth, (req, res) => {
   res.json({ ok: true, id: Number(info.lastInsertRowid) })
 })
 
+/** 删除班级：学员转到「未分班」，删除相关周规则和课次 */
+app.delete('/api/classes/:id', requireAuth, (req, res) => {
+  const id = Number(req.params.id)
+  const cls = db.prepare('SELECT id, name FROM classes WHERE id = ?').get(id) as
+    | { id: number; name: string }
+    | undefined
+  if (!cls) return res.status(404).json({ error: '班级不存在' })
+  if (cls.name === '未分班') return res.status(400).json({ error: '「未分班」是系统内置班级，不能删除' })
+
+  const studentCount = (
+    db.prepare("SELECT COUNT(*) AS n FROM enrollments WHERE class_id = ? AND status = 'active'").get(id) as { n: number }
+  ).n
+  const sessionCount = (db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE class_id = ?').get(id) as { n: number }).n
+
+  tx(() => {
+    // 学员转到「未分班」班级
+    if (studentCount > 0) {
+      const unassigned = ensureUnassignedClass()
+      db.prepare("UPDATE enrollments SET class_id = ?, course_id = ? WHERE class_id = ? AND status = 'active'").run(
+        unassigned.id,
+        unassigned.course_id,
+        id
+      )
+    }
+    // 删除课次（级联删除 attendance 和 lesson_ledger 的 session 关联）
+    if (sessionCount > 0) {
+      db.prepare('DELETE FROM sessions WHERE class_id = ?').run(id)
+    }
+    // 删除周规则
+    db.prepare('DELETE FROM schedule_rules WHERE class_id = ?').run(id)
+    // 删除班级
+    db.prepare('DELETE FROM classes WHERE id = ?').run(id)
+  })
+
+  res.json({ ok: true, movedStudents: studentCount, removedSessions: sessionCount })
+})
+
 /** 添加学生到班级（从别班转来 / 新建报名） */
 app.post('/api/classes/:id/students', requireAuth, (req, res) => {
   const classId = Number(req.params.id)

@@ -102,6 +102,28 @@ export default function Classes() {
     }
   }
 
+  async function deleteClass() {
+    if (!active) return
+    const warn =
+      active.student_count > 0
+        ? `班级里有 ${active.student_count} 名学员，删除后他们会转到「未分班」。`
+        : '这个班级没有学员。'
+    if (!confirm(`确认删除班级「${active.name}」？\n\n${warn}\n相关的课表和周排课也会一并删除。此操作不可恢复。`)) {
+      return
+    }
+    setBusy(true)
+    try {
+      await api(`/classes/${active.id}`, { method: 'DELETE' })
+      setActiveId(null)
+      toast('已删除班级')
+      await load()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '删除失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function removeStudent(studentId: number, name: string) {
     if (!activeId) return
     if (!confirm(`把 ${name} 从班级移除？不会删除学员和课时记录。`)) return
@@ -167,6 +189,9 @@ export default function Classes() {
                 <h2>{active.name}</h2>
                 <p>{active.course_name} · {active.student_count} 名学员 / {active.capacity} 座</p>
               </div>
+              <button className="pill small" onClick={deleteClass} disabled={busy} style={{ height: 28, color: '#a32b2b', borderColor: '#e0b9b3' }}>
+                删除班级
+              </button>
             </div>
 
             <div style={{ display: 'flex', gap: 8 }}>

@@ -15,11 +15,8 @@ const STEP_KEY = 'twb.onboard.step'
 export default function Onboarding({ state, onDone }: { state: OnboardState; onDone: () => void }) {
   const { register, login } = useAuth()
 
-  // 初始 step：始终从 0（登录/创建账号）开始；如果之前走到一半，恢复进度
-  const [step, setStep] = useState(() => {
-    const saved = Number(localStorage.getItem(STEP_KEY) ?? '0')
-    return Number.isFinite(saved) ? Math.min(saved, 2) : 0
-  })
+  // 初始 step：始终从 0（登录/创建账号）开始
+  const [step, setStep] = useState(0)
   const [dataDir, setDataDir] = useState(state.dataDir)
   const [pickedAgain, setPickedAgain] = useState(false)
   const [source, setSource] = useState<'demo' | 'blank'>('demo')

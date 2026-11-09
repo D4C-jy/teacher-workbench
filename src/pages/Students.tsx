@@ -89,11 +89,14 @@ export default function Students() {
       setList(d.students)
       setSummary(d.summary)
       setError('')
-      if (d.students.length > 0 && activeId === null) setActiveId(d.students[0].id)
+      // 用函数式更新，只在还没有选中项时自动选第一个，不依赖 activeId 闭包
+      if (d.students.length > 0) {
+        setActiveId((prev) => (prev === null || !d.students.some((x) => x.id === prev) ? d.students[0].id : prev))
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败')
     }
-  }, [q, classId, activeId])
+  }, [q, classId])
 
   useEffect(() => {
     api<{ classes: Array<{ id: number; name: string; course_name: string }> }>('/meta')
@@ -123,7 +126,7 @@ export default function Students() {
     }
     setBusy(true)
     try {
-      await api('/students', {
+      const r = await api<{ id: number }>('/students', {
         body: {
           name: addForm.name.trim(),
           gender: addForm.gender || undefined,
@@ -137,7 +140,10 @@ export default function Students() {
       setShowAdd(false)
       setAddForm({ name: '', gender: '', guardianName: '', guardianPhone: '', classId: '', lessons: '10', amount: '' })
       setFlash('已新增学员')
-      await load()
+      // 清掉筛选，确保新学员一定在列表里，并选中它
+      setQ('')
+      setClassId(0)
+      setActiveId(r.id)
       setTimeout(() => setFlash(''), 2400)
     } catch (err) {
       setFlash(err instanceof Error ? err.message : '新增失败')

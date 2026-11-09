@@ -102,7 +102,7 @@ export default function Profile() {
             <i style={{ width: `${Math.min(100, data.renewals.rate)}%` }} />
           </div>
           <span className="pf-sub">
-            本月续费 {data.renewals.renewed} / 在读 {data.renewals.total} 人
+            本月续费 {data.renewals.renewed} / 应续费 {data.renewals.total} 人
           </span>
         </div>
 
@@ -138,7 +138,7 @@ export default function Profile() {
       </section>
 
       <p className="pf-foot">
-        到课率 = 本月实到人次 ÷ 应到人次（按课次数 × 班级人数）；续费率 = 本月有充值的学员 ÷ 在读学员。
+        到课率 = 本月实到人次 ÷ 应到人次（按课次数 × 班级人数）；续费率 = 本月续费人数 ÷ 本月应续费人数（余额低于 10 课时的学员）。
         数据全部来自课时流水与课次记录，没有手工填写的数字。
       </p>
     </div>

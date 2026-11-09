@@ -214,6 +214,20 @@ teacher-workbench/
 - `GET /api/students/:id` 返回 gender，详情页展示性别标签 + 家长联系方式
 - 学员页工具栏加「＋ 新增学员」，表单弹窗两列排布
 
+## 续费率公式 & 自动更新（v2.0 进行中）
+
+- 续费率公式改为：**续费率 = 本月续费人数 ÷ 本月应续费人数**，应续费人数 = 当前余额 < 10 课时的在读学员。
+  `GET /api/stats/monthly` 的 renewals.total 从"在读人数"改为"应续费人数"（HAVING SUM(delta) < 10）。
+- 演示数据"报名缴费（演示数据）"的 occurred_at 改为 2 个月前，避免污染本月续费统计（迁移 UPDATE）。
+- 个人中心续费文案同步改为"本月续费 X / 应续费 Y 人"。
+
+### 自动更新（electron-updater，未完成发布）
+- 已装 electron-updater，main.cjs 接入：update-available 弹窗询问下载、update-downloaded 弹窗提示重启、quitAndInstall。
+- `checkForUpdates()` 只在 `app.isPackaged` 时运行，开发/网页版不触发。
+- package.json build.publish 指向 github owner=D4C-jy repo=teacher-workbench。
+- **卡点**：本机 git 用占位身份 dev@local，无 GitHub 凭据；gh CLI 未装；MCP GitHub 连接器 403 无法建私有仓库/传 Release。
+  需要用户提供：`gh auth login` 或 PAT token，然后 electron-builder `--publish always` 或 `gh release` 上传安装包 + latest.yml。
+
 ## 班级管理 & 消课三态（v1.5）
 
 - 班级：`GET /api/classes`（含每班学员名单+未分班学员）、`POST /api/classes`（建班）、

@@ -1096,10 +1096,23 @@ app.get('/api/stats/monthly', requireAuth, (req, res) => {
       .get(like) as { n: number }
   ).n
 
-  const activeStudents = (
-    db.prepare("SELECT COUNT(DISTINCT student_id) AS n FROM enrollments WHERE status = 'active'").get() as { n: number }
+  // 应续费人数：当前余额 < 10 课时的在读学员（去重）
+  const shouldRenew = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM (
+           SELECT e.student_id
+             FROM enrollments e
+             LEFT JOIN lesson_ledger l ON l.enrollment_id = e.id
+            WHERE e.status = 'active'
+            GROUP BY e.student_id
+           HAVING COALESCE(SUM(l.delta), 0) < 10
+         )`
+      )
+      .get() as { n: number }
   ).n
 
+  // 本月续费人数：本月有充值记录的学员（去重）
   const renewedStudents = (
     db
       .prepare(
@@ -1124,7 +1137,7 @@ app.get('/api/stats/monthly', requireAuth, (req, res) => {
     revenue: Math.round(revenue * 100) / 100,
     sessions: doneSessions,
     attendance: { present, expected, rate: pct(present, expected) },
-    renewals: { renewed: renewedStudents, total: activeStudents, rate: pct(renewedStudents, activeStudents) },
+    renewals: { renewed: renewedStudents, total: shouldRenew, rate: pct(renewedStudents, shouldRenew) },
     daily,
   })
 })

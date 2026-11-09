@@ -1,7 +1,7 @@
 {
   "name": "teacher-workbench",
   "private": true,
-  "version": "1.9.0",
+  "version": "2.0.0",
   "type": "module",
   "description": "教培老师个人工作台：课时、课表、器材",
   "scripts": {
@@ -18,6 +18,7 @@
     "pack:slim": "npm run build:all && node scripts/pack-slim.mjs"
   },
   "dependencies": {
+    "electron-updater": "^6.8.11",
     "express": "^4.21.2",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
@@ -75,7 +76,14 @@
       "shortcutName": "教培工作台",
       "artifactName": "TeacherWorkbench-Setup-${version}.${ext}"
     },
-    "compression": "maximum"
+    "compression": "maximum",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "D4C-jy",
+        "repo": "teacher-workbench"
+      }
+    ]
   },
   "author": "Teacher Workbench"
 }

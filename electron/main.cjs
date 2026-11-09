@@ -1,6 +1,7 @@
 const { app, BrowserWindow, shell, dialog } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
+const { autoUpdater } = require('electron-updater')
 
 // 单实例：第二次双击时聚焦已有窗口
 const gotLock = app.requestSingleInstanceLock()
@@ -133,7 +134,11 @@ function createWindow() {
     },
   })
 
-  mainWindow.once('ready-to-show', () => mainWindow.show())
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show()
+    // 延迟 3 秒检查更新，避免和启动抢资源
+    setTimeout(checkForUpdates, 3000)
+  })
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http')) shell.openExternal(url)
@@ -147,11 +152,65 @@ function createWindow() {
   })
 }
 
+// 自动更新：只在打包环境（有 app-update.yml）里启用
+let updateReady = false
+function setupAutoUpdate() {
+  try {
+    autoUpdater.autoDownload = false
+    autoUpdater.autoInstallOnAppQuit = true
+
+    autoUpdater.on('update-available', (info) => {
+      const choice = dialog.showMessageBoxSync(mainWindow, {
+        type: 'info',
+        title: '发现新版本',
+        message: `发现新版本 v${info.version}，是否现在下载更新？`,
+        detail: '下载完成后，下次启动程序时自动安装。数据不会丢失。',
+        buttons: ['下载更新', '稍后再说'],
+        defaultId: 0,
+      })
+      if (choice === 0) autoUpdater.downloadUpdate()
+    })
+
+    autoUpdater.on('update-downloaded', () => {
+      dialog
+        .showMessageBox(mainWindow, {
+          type: 'info',
+          title: '更新已就绪',
+          message: '新版本已下载完成',
+          detail: '重启程序即可完成更新。数据不会丢失。',
+          buttons: ['立即重启', '稍后'],
+          defaultId: 0,
+        })
+        .then((r) => {
+          if (r.response === 0) autoUpdater.quitAndInstall(false, true)
+        })
+    })
+
+    autoUpdater.on('error', () => {
+      // 更新失败静默处理，不影响正常使用
+    })
+
+    updateReady = true
+  } catch {
+    updateReady = false
+  }
+}
+
+function checkForUpdates() {
+  if (!updateReady || !app.isPackaged) return
+  try {
+    autoUpdater.checkForUpdates().catch(() => {})
+  } catch {
+    /* ignore */
+  }
+}
+
 app.whenReady().then(async () => {
   await ensureDataLocation()
 
   PORT = await pickPort()
   process.env.PORT = String(PORT)
+  setupAutoUpdate()
 
   try {
     require(path.join(appRoot, 'dist-server', 'index.cjs'))

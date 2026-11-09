@@ -6,7 +6,7 @@ import Today from './pages/Today'
 import Placeholder from './pages/Placeholder'
 import Timetable from './pages/Timetable'
 import Students from './pages/Students'
-import FontLab from './pages/FontLab'
+import Equipment from './pages/Equipment'
 import Profile from './pages/Profile'
 
 function Protected() {
@@ -32,16 +32,12 @@ export default function App() {
         <Route path="/timetable" element={<Timetable />} />
         <Route path="/students" element={<Students />} />
         <Route path="/profile" element={<Profile />} />
-        <Route
-          path="/equipment"
-          element={<Placeholder title="器材" desc="无人机台账、借还记录、二维码标签。M3 实现。" />}
-        />
+        <Route path="/equipment" element={<Equipment />} />
         <Route
           path="/settings"
           element={<Placeholder title="设置" desc="时段、提醒阈值、备份与恢复。M4 实现。" />}
         />
       </Route>
-      <Route path="/font-lab" element={<FontLab />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

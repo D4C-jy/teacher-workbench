@@ -779,6 +779,147 @@ app.get('/api/stats/monthly', requireAuth, (req, res) => {
   })
 })
 
+/* ---------------- 器材 ---------------- */
+
+interface EqRow {
+  id: number
+  code: string
+  model: string | null
+  status: string
+  note: string | null
+  purchased_at: string | null
+}
+
+app.get('/api/equipment', requireAuth, (_req, res) => {
+  const items = db
+    .prepare('SELECT id, code, model, status, note, purchased_at FROM equipment ORDER BY code')
+    .all() as unknown as EqRow[]
+
+  const openLoans = db
+    .prepare(
+      `SELECT l.equipment_id, l.borrower_name, l.lent_at, l.due_at, l.condition_out
+         FROM equipment_loans l WHERE l.returned_at IS NULL`
+    )
+    .all() as Array<{ equipment_id: number; borrower_name: string; lent_at: string; due_at: string | null; condition_out: string | null }>
+  const loanMap = new Map(openLoans.map((l) => [l.equipment_id, l]))
+
+  res.json({
+    items: items.map((e) => {
+      const loan = loanMap.get(e.id)
+      return {
+        id: e.id,
+        code: e.code,
+        model: e.model,
+        status: e.status,
+        note: e.note,
+        purchasedAt: e.purchased_at,
+        loan: loan
+          ? { borrower: loan.borrower_name, lentAt: loan.lent_at, dueAt: loan.due_at, conditionOut: loan.condition_out }
+          : null,
+      }
+    }),
+    summary: {
+      total: items.length,
+      inStock: items.filter((e) => e.status === 'in_stock').length,
+      lent: items.filter((e) => e.status === 'lent').length,
+      repair: items.filter((e) => e.status === 'repair').length,
+      retired: items.filter((e) => e.status === 'retired').length,
+    },
+  })
+})
+
+app.post('/api/equipment', requireAuth, (req, res) => {
+  const code = String(req.body?.code ?? '').trim()
+  const model = String(req.body?.model ?? '').trim() || null
+  if (code.length < 2) return res.status(400).json({ error: '编号至少 2 个字符' })
+
+  const dup = db.prepare('SELECT id FROM equipment WHERE code = ?').get(code)
+  if (dup) return res.status(409).json({ error: '这个编号已经存在' })
+
+  const info = db
+    .prepare("INSERT INTO equipment (code, model, status) VALUES (?, ?, 'in_stock')")
+    .run(code, model)
+  res.json({ ok: true, id: Number(info.lastInsertRowid) })
+})
+
+app.post('/api/equipment/:id/lend', requireAuth, (req, res) => {
+  const id = Number(req.params.id)
+  const borrower = String(req.body?.borrowerName ?? '').trim()
+  const studentId = req.body?.studentId ? Number(req.body.studentId) : null
+  const sessionId = req.body?.sessionId ? Number(req.body.sessionId) : null
+  const dueAt = req.body?.dueAt ? String(req.body.dueAt) : null
+  const conditionOut = String(req.body?.conditionOut ?? '').trim() || null
+
+  if (!borrower) return res.status(400).json({ error: '请填借用人' })
+
+  const eq = db.prepare('SELECT id, status FROM equipment WHERE id = ?').get(id) as
+    | { id: number; status: string }
+    | undefined
+  if (!eq) return res.status(404).json({ error: '器材不存在' })
+  if (eq.status === 'lent') return res.status(409).json({ error: '这台已经借出了' })
+  if (eq.status === 'retired') return res.status(409).json({ error: '这台已停用' })
+
+  tx(() => {
+    db.prepare(
+      "INSERT INTO equipment_loans (equipment_id, borrower_name, student_id, session_id, lent_at, due_at, condition_out) VALUES (?, ?, ?, ?, datetime('now','localtime'), ?, ?)"
+    ).run(id, borrower, studentId, sessionId, dueAt, conditionOut)
+    db.prepare("UPDATE equipment SET status = 'lent' WHERE id = ?").run(id)
+  })
+
+  res.json({ ok: true })
+})
+
+app.post('/api/equipment/:id/return', requireAuth, (req, res) => {
+  const id = Number(req.params.id)
+  const conditionIn = String(req.body?.conditionIn ?? '').trim() || null
+  const toRepair = Boolean(req.body?.toRepair)
+
+  const eq = db.prepare('SELECT id, status FROM equipment WHERE id = ?').get(id) as
+    | { id: number; status: string }
+    | undefined
+  if (!eq) return res.status(404).json({ error: '器材不存在' })
+  if (eq.status !== 'lent') return res.status(409).json({ error: '这台没有借出记录' })
+
+  const open = db
+    .prepare('SELECT id FROM equipment_loans WHERE equipment_id = ? AND returned_at IS NULL ORDER BY id DESC LIMIT 1')
+    .get(id) as { id: number } | undefined
+  if (!open) return res.status(409).json({ error: '找不到未归还的记录' })
+
+  tx(() => {
+    db.prepare(
+      "UPDATE equipment_loans SET returned_at = datetime('now','localtime'), condition_in = ? WHERE id = ?"
+    ).run(conditionIn, open.id)
+    db.prepare("UPDATE equipment SET status = ? WHERE id = ?").run(toRepair ? 'repair' : 'in_stock', id)
+  })
+
+  res.json({ ok: true })
+})
+
+app.get('/api/equipment/:id/loans', requireAuth, (req, res) => {
+  const id = Number(req.params.id)
+  const rows = db
+    .prepare(
+      `SELECT id, borrower_name, lent_at, due_at, returned_at, condition_out, condition_in
+         FROM equipment_loans WHERE equipment_id = ? ORDER BY lent_at DESC, id DESC LIMIT 50`
+    )
+    .all(id)
+  res.json({ loans: rows })
+})
+
+app.get('/api/export/equipment.csv', requireAuth, (_req, res) => {
+  const items = db
+    .prepare('SELECT code, model, status, note, purchased_at FROM equipment ORDER BY code')
+    .all() as Array<{ code: string; model: string | null; status: string; note: string | null; purchased_at: string | null }>
+  const label: Record<string, string> = { in_stock: '在库', lent: '借出', repair: '维修', retired: '停用' }
+  const head = '编号,型号,状态,备注,购入日期\n'
+  const body = items
+    .map((e) => [e.code, e.model ?? '', label[e.status] ?? e.status, e.note ?? '', e.purchased_at ?? ''].join(','))
+    .join('\n')
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+  res.setHeader('Content-Disposition', 'attachment; filename="equipment.csv"')
+  res.send('\ufeff' + head + body)
+})
+
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
 /* ---------------- 静态资源（生产/Electron） ---------------- */

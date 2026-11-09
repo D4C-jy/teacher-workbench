@@ -5,12 +5,23 @@
 
 ---
 
-## 当前状态（2026-11-09 · 第 7 次交接）
+## 当前状态（2026-11-09 · 第 N 次交接）
 
-**版本**：v0.7（M0 → M1 → M2 → 个人中心 → M3 → 视觉修订 → **M4 设置/二维码/打包**）
-**形态**：**浏览器版**（`启动工作台.bat`）+ **安装包**（`release-app/TeacherWorkbench-Setup-0.1.0.exe`，116MB）
-**进度**：6 个页面**全部可用**。
-**字体**：已定稿为**微软雅黑**（`Microsoft YaHei UI` 优先），所有外挂字体已移除，CSS 从 481KB 降到 32KB。
+**版本**：v2.1.4
+**形态**：浏览器版（`启动工作台.bat`）+ 安装包（`release-slim/TeacherWorkbench-Setup-2.1.4.exe`，101MB）
+**进度**：7 个模块全部可用（今日/课表/学员/班级/器材/个人中心/设置），支持自动更新
+**字体**：微软雅黑
+**仓库**：https://github.com/D4C-jy/teacher-workbench（公开），GitHub Release 自动更新
+**数据**：每账号独立（owner_id 隔离），课程全局共享
+
+### 核心特性（v2.x 新增）
+- 每账号独立数据隔离（owner_id）
+- 引导弹窗（登录后弹出，非全屏）
+- 演示数据按账号注入（新号可选演示/空白）
+- GitHub Release 自动更新（启动检查 + 设置页手动检查 + 下载进度）
+- 续费率新公式（可超 100%）
+
+### 本轮完成（v2.1.4）
 
 ### 本轮完成（v0.6）
 
@@ -357,6 +368,39 @@ POST /api/import/cancel → 反悔，删掉 pending 文件
 `pickPort()` 从 4600 开始探测，被占用才顺延。
 
 ## 变更记录
+
+### 2026-11-09 · v2.1.4（演示数据按账号注入 + 更新进度）
+- 演示数据：seed 重构为 seedDemoData(ownerId)，按账号注入；课程全局化(seedGlobalCourses，owner_id=0)。
+- 引导选「演示数据」→ /settings/seed-demo，选「空白」→ clear-data；注册不再自动认领 seed。
+- 更新：弹窗去重(updateDialogShown) + download-progress 进度 + 前端 500ms 轮询 get-update-state。
+- 迁移：equipment.code 去 UNIQUE（重建表，PRAGMA foreign_keys=OFF 包裹）。
+
+### 2026-11-09 · v2.1.3（修复5个问题）
+- 课程全局化(owner_id=0 共享)，新账号都有完整课程。
+- 新增学员显式 load() 实时刷新列表。
+- 引导 onboard-state 带 token，不再每次登录重复弹。
+- 讲台老师名改当前账号 displayName（不再硬编码王老师）。
+- 设置页加「清除所有数据」按钮。
+
+### 2026-11-09 · v2.1.2（设置页手动检查更新）
+- main.cjs __twbNative 加 checkUpdate/getUpdateState；后端 /api/native/check-update。
+- 设置页账号卡片加「检查更新」按钮。
+
+### 2026-11-09 · v2.1.1（修复数据隔离未生效）
+- 根因：pack-slim 只检查 dist/index.html 不触发 dist-server 重建，v2.1.0 安装包后端是旧代码。
+- 修复：pack-slim 打包前强制 build:all。
+
+### 2026-11-09 · v2.1.0（每账号独立数据隔离）
+- 5 个顶层实体表(courses/classes/students/equipment/time_slots)加 owner_id。
+- 所有查询按 req.user.id 过滤，写入带 owner_id；onboarded 改 onboarded:<userId>。
+- clear-data 按 owner 删。
+
+### 2026-11-09 · v2.0.0（续费率新公式 + 自动更新）
+- 续费率=本月续费人数/应续费人数(<10课时)，允许超100%，新报名也算续费。
+- 接入 electron-updater（启动检查 + 弹窗下载 + 重启安装）。
+- GitHub 仓库 D4C-jy/teacher-workbench，Release 发布 latest.yml。
+- **关键**：仓库曾为私有，releases.atom 匿名访问 404，改公开后更新可用。
+- **网络**：本机连 GitHub 需代理 127.0.0.1:7890（git 全局代理 + 用户级 HTTPS_PROXY）。
 
 ### 2026-11-09 · v1.9.0（删除班级 + 新课程）
 - 删除班级：DELETE /api/classes/:id，学员转「未分班」、删课次(级联attendance/ledger)、删周规则、删班级；「未分班」系统班拒绝删除。

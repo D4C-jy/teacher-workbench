@@ -188,6 +188,15 @@ teacher-workbench/
 
 ## 变更记录
 
+### 2026-11-09 · v0.9（数据目录可自选）
+- Electron 首次启动弹目录选择框（`dialog.showOpenDialog`），默认建议 `D://教培工作台数据`，
+  选择结果写入 `%APPDATA%/教培工作台/location.json`
+- 数据目录解析顺序：`TWB_DATA_DIR` 环境变量 → `location.json` 的 `dataDir` → `<home>/data`
+- 设置页新增「数据存放位置」：显示当前目录、更改位置（`VACUUM INTO` 迁移 + 写 location.json，重启生效）
+- 新增接口 `POST /api/settings/move-data`（校验绝对路径、目标已有 db 则拒绝）
+- **坑**：`pack-slim.mjs` 里 `rmSync` 被沙箱删除保护拦截 → 改为捕获后换时间戳目录；
+  `execFileSync('npx.cmd')` 在 Windows 上报 spawn 失败 → 改用 `execSync` 走 shell
+
 ### 2026-11-09 · v0.8（体积优化）
 - Electron 运行时裁剪：locales 从 55 个语言包只留 `zh-CN` / `en-US`（省 47.8MB），
   去掉 `dxcompiler.dll`（25.7MB）与 `electron_wer.dll`

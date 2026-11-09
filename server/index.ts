@@ -1,7 +1,7 @@
 import express from 'express'
 import fs from 'node:fs'
 import path from 'node:path'
-import { db, seedIfEmpty, todayStr, tx, DB_FILE } from './db'
+import { db, seedIfEmpty, todayStr, tx, DB_FILE, DATA_DIR, HOME_DIR, LOCATION_FILE } from './db'
 import {
   hashPassword,
   verifyPassword,
@@ -963,7 +963,33 @@ app.get('/api/settings', requireAuth, (_req, res) => {
       semesterStart: getCfg('semester_start', ''),
     },
     dbFile: DB_FILE,
+    dataDir: DATA_DIR,
+    homeDir: HOME_DIR,
   })
+})
+
+/** 迁移数据目录：VACUUM INTO 新位置 + 记录到 location.json，重启后生效 */
+app.post('/api/settings/move-data', requireAuth, (req, res) => {
+  const raw = String(req.body?.targetDir ?? '').trim()
+  if (!raw) return res.status(400).json({ error: '请输入目录路径' })
+  if (!/^[a-zA-Z]:[\\/]/.test(raw)) return res.status(400).json({ error: '请填绝对路径，例如 D:////教培数据' })
+
+  const target = path.resolve(raw)
+  if (target === path.resolve(DATA_DIR)) return res.status(400).json({ error: '和当前位置相同' })
+
+  try {
+    fs.mkdirSync(target, { recursive: true })
+    const targetDb = path.join(target, 'workbench.db')
+    if (fs.existsSync(targetDb)) {
+      return res.status(409).json({ error: '这个目录里已经有 workbench.db 了，换个目录或先移走' })
+    }
+    db.exec(`VACUUM INTO '${targetDb.replace(/\\/g, '/')}'`)
+    fs.writeFileSync(LOCATION_FILE, JSON.stringify({ dataDir: target }, null, 2), 'utf8')
+    res.json({ ok: true, dataDir: target })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: '迁移失败，检查目录权限或磁盘空间' })
+  }
 })
 
 app.post('/api/settings', requireAuth, (req, res) => {

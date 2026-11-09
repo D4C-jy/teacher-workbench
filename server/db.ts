@@ -2,10 +2,34 @@ import { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
 
-const dataDir = process.env.TWB_DATA_DIR || path.resolve(process.cwd(), 'data')
-fs.mkdirSync(dataDir, { recursive: true })
+/**
+ * 数据目录解析顺序：
+ * 1. 环境变量 TWB_DATA_DIR（开发/调试用）
+ * 2. <home>/location.json 里记录的 dataDir（用户在设置里选过）
+ * 3. <home>/data
+ * home 在安装版是 %APPDATA%/教培工作台，开发版是项目根目录
+ */
+export const HOME_DIR = process.env.TWB_HOME || path.resolve(process.cwd())
+export const LOCATION_FILE = path.join(HOME_DIR, 'location.json')
 
-export const DB_FILE = path.join(dataDir, 'workbench.db')
+function resolveDataDir(): string {
+  const fromEnv = process.env.TWB_DATA_DIR
+  if (fromEnv) return fromEnv
+  try {
+    if (fs.existsSync(LOCATION_FILE)) {
+      const j = JSON.parse(fs.readFileSync(LOCATION_FILE, 'utf8')) as { dataDir?: string }
+      if (j?.dataDir && typeof j.dataDir === 'string') return j.dataDir
+    }
+  } catch {
+    /* 配置坏了就用默认 */
+  }
+  return path.join(HOME_DIR, 'data')
+}
+
+export const DATA_DIR = resolveDataDir()
+fs.mkdirSync(DATA_DIR, { recursive: true })
+
+export const DB_FILE = path.join(DATA_DIR, 'workbench.db')
 export const db = new DatabaseSync(DB_FILE)
 
 db.exec('PRAGMA journal_mode = WAL')

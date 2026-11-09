@@ -15,6 +15,8 @@ interface SettingsData {
   slots: Slot[]
   config: { lowThreshold: number; expireDays: number; semesterStart: string }
   dbFile: string
+  dataDir: string
+  homeDir: string
 }
 
 export default function Settings() {
@@ -26,6 +28,9 @@ export default function Settings() {
 
   const [form, setForm] = useState({ lowThreshold: '3', expireDays: '30', semesterStart: '' })
   const [newSlot, setNewSlot] = useState({ name: '', start: '19:00', end: '20:30' })
+  const [showMove, setShowMove] = useState(false)
+  const [movePath, setMovePath] = useState('')
+  const [moving, setMoving] = useState(false)
 
   async function load() {
     try {
@@ -100,6 +105,24 @@ export default function Settings() {
       toast(err instanceof Error ? err.message : '删除失败')
     } finally {
       setBusy(false)
+    }
+  }
+
+  async function doMove(e: React.FormEvent) {
+    e.preventDefault()
+    if (!movePath.trim()) return toast('请输入目录路径')
+    setMoving(true)
+    try {
+      const r = await api<{ dataDir: string }>('/settings/move-data', {
+        body: { targetDir: movePath.trim() },
+      })
+      setShowMove(false)
+      toast(`已迁移到 ${r.dataDir}，请重启程序`)
+      await load()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '迁移失败')
+    } finally {
+      setMoving(false)
     }
   }
 
@@ -237,20 +260,60 @@ export default function Settings() {
 
       {/* 数据 */}
       <section className="set-card">
-        <h3>数据</h3>
+        <h3>数据存放位置</h3>
         <p className="set-desc">
-          全部数据是一个 SQLite 文件。复制它就是完整备份；把它放回原位置就是还原。
+          全部数据是一个 SQLite 文件，放在下面这个目录里。建议放非系统盘，重装系统也不丢。
         </p>
-        <div className="set-path">{data.dbFile}</div>
+        <div className="set-path">{data.dataDir}</div>
         <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+          <button className="pill small" onClick={() => { setMovePath(data.dataDir); setShowMove(true) }} style={{ height: 32 }}>
+            更改位置
+          </button>
           <button className="pill small dark" onClick={backup} style={{ height: 32 }}>
             下载备份
           </button>
-          <span style={{ fontSize: 12, color: 'var(--ink-3)', alignSelf: 'center' }}>
-            还原：关掉窗口 → 用备份文件覆盖上面这个路径 → 重新启动
-          </span>
         </div>
+        <p className="set-desc" style={{ marginTop: 6 }}>
+          更改位置会把当前数据复制到新目录，<b>重启程序后生效</b>，原目录文件不会被删除。
+        </p>
       </section>
+
+      {showMove && (
+        <div className="mask" onClick={() => setShowMove(false)}>
+          <form className="dlg" style={{ width: 460 }} onClick={(e) => e.stopPropagation()} onSubmit={doMove}>
+            <div className="dlg-head">
+              <h3>更改数据存放位置</h3>
+              <button type="button" className="tt-close" onClick={() => setShowMove(false)}>
+                ×
+              </button>
+            </div>
+            <div className="dlg-body" style={{ gridTemplateColumns: '1fr' }}>
+              <label>
+                新目录（绝对路径）
+                <input
+                  value={movePath}
+                  onChange={(e) => setMovePath(e.target.value)}
+                  placeholder="例如 D://教培工作台数据"
+                  autoFocus
+                />
+              </label>
+            </div>
+            <p className="dlg-hint">
+              当前：{data.dataDir}
+              <br />
+              迁移会把数据库复制到新目录，原文件保留。需要关闭并重新打开程序才会生效。
+            </p>
+            <div className="dlg-foot">
+              <button type="button" className="pill small" onClick={() => setShowMove(false)}>
+                取消
+              </button>
+              <button type="submit" className="pill small dark" disabled={moving}>
+                {moving ? '迁移中…' : '迁移到此处'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {flash && <div className="st-flash">{flash}</div>}
     </div>

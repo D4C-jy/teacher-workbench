@@ -3,13 +3,12 @@
  * 再让 electron-builder 用这个目录做 NSIS（跳过它自己的解压步骤）。
  */
 import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { execSync } from 'node:child_process'
 import path from 'node:path'
 
 const root = process.cwd()
 const electronDist = path.join(root, 'node_modules', 'electron', 'dist')
-const staging = path.join(root, 'build-slim', 'win-unpacked')
-const appDir = path.join(staging, 'resources', 'app')
+let stagingRoot = path.join(root, 'build-slim')
 
 const REQUIRED = [
   'chrome_100_percent.pak', 'chrome_200_percent.pak', 'd3dcompiler_47.dll',
@@ -27,8 +26,16 @@ if (!existsSync(path.join(root, 'dist', 'index.html'))) {
   process.exit(1)
 }
 
-console.log('· 清理 staging')
-rmSync(path.join(root, 'build-slim'), { recursive: true, force: true })
+// 有些环境（沙箱/杀软）不允许删目录，删不掉就换一个新目录
+console.log('· 准备 staging')
+try {
+  rmSync(stagingRoot, { recursive: true, force: true })
+} catch {
+  stagingRoot = path.join(root, `build-slim-${Date.now()}`)
+  console.log('  旧目录占用，改用', path.basename(stagingRoot))
+}
+const staging = path.join(stagingRoot, 'win-unpacked')
+const appDir = path.join(staging, 'resources', 'app')
 mkdirSync(path.join(staging, 'locales'), { recursive: true })
 mkdirSync(appDir, { recursive: true })
 
@@ -48,10 +55,7 @@ for (const item of ['dist', 'dist-server', 'electron', 'package.json']) {
 }
 
 console.log('· 调用 electron-builder')
-execFileSync(
-  process.platform === 'win32' ? 'npx.cmd' : 'npx',
-  ['electron-builder', '--win', 'nsis', '--prepackaged', path.join('build-slim', 'win-unpacked')],
-  { stdio: 'inherit', cwd: root }
-)
+const rel = path.relative(root, staging).replace(/\\/g, '/')
+execSync(`npx electron-builder --win nsis --prepackaged "${rel}"`, { stdio: 'inherit', cwd: root })
 
 console.log('\n完成：release-slim/')

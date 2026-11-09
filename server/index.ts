@@ -241,6 +241,7 @@ app.get('/api/today', requireAuth, (req, res) => {
     focusClassId: focus?.class_id ?? null,
     sessions: sessions.map((s) => ({
       id: s.id,
+      classId: s.class_id,
       start: s.start_time,
       end: s.end_time,
       courseName: s.course_name,
@@ -754,6 +755,7 @@ app.post('/api/students', requireAuth, (req, res) => {
   const guardianPhone = String(req.body?.guardianPhone ?? '').trim() || null
   const classId = Number(req.body?.classId || 0)
   const lessons = Number(req.body?.lessons ?? 0) || 0
+  const amount = req.body?.amount === undefined || req.body?.amount === '' ? null : Number(req.body.amount)
 
   if (!name) return res.status(400).json({ error: '请填学员姓名' })
 
@@ -783,8 +785,8 @@ app.post('/api/students', requireAuth, (req, res) => {
         )
         if (lessons > 0) {
           db.prepare(
-            "INSERT INTO lesson_ledger (enrollment_id, type, delta, occurred_at, reason) VALUES (?, 'charge', ?, datetime('now','localtime'), ?)"
-          ).run(eid, lessons, '报名缴费')
+            "INSERT INTO lesson_ledger (enrollment_id, type, delta, occurred_at, reason, amount) VALUES (?, 'charge', ?, datetime('now','localtime'), ?, ?)"
+          ).run(eid, lessons, '报名缴费', amount)
         }
       }
     }

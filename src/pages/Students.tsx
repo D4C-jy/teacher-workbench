@@ -78,6 +78,7 @@ export default function Students() {
     guardianPhone: '',
     classId: '',
     lessons: '10',
+    amount: '',
   })
 
   const load = useCallback(async () => {
@@ -130,10 +131,11 @@ export default function Students() {
           guardianPhone: addForm.guardianPhone.trim(),
           classId: Number(addForm.classId || 0),
           lessons: Number(addForm.lessons) || 0,
+          amount: addForm.amount ? Number(addForm.amount) : undefined,
         },
       })
       setShowAdd(false)
-      setAddForm({ name: '', gender: '', guardianName: '', guardianPhone: '', classId: '', lessons: '10' })
+      setAddForm({ name: '', gender: '', guardianName: '', guardianPhone: '', classId: '', lessons: '10', amount: '' })
       setFlash('已新增学员')
       await load()
       setTimeout(() => setFlash(''), 2400)
@@ -461,6 +463,17 @@ export default function Students() {
                   value={addForm.lessons}
                   onChange={(e) => setAddForm({ ...addForm, lessons: e.target.value })}
                   placeholder="例如 10"
+                />
+              </label>
+              <label style={{ gridColumn: '1 / -1' }}>
+                报名金额（元，可留空）
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={addForm.amount}
+                  onChange={(e) => setAddForm({ ...addForm, amount: e.target.value })}
+                  placeholder="例如 2400"
                 />
               </label>
             </div>

@@ -42,6 +42,7 @@ export interface TodayData {
   focusClassId: number | null
   sessions: Array<{
     id: number
+    classId: number
     start: string
     end: string
     courseName: string

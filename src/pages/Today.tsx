@@ -3,7 +3,9 @@ import { api, type TodayData } from '../lib/api'
 import { Figure, Uav } from '../components/Glyphs'
 import { useTilt } from '../lib/useTilt'
 import { useCountdown } from '../lib/useCountdown'
+import { useCurrentSessions } from '../lib/useCurrentSessions'
 import RollNum from '../components/RollNum'
+import ConsumeModal from '../components/ConsumeModal'
 
 const LOW_THRESHOLD = 3
 
@@ -39,6 +41,16 @@ function Seats({ students }: { students: Array<{ id: number; name: string; balan
         </div>
       ))}
     </div>
+  )
+}
+
+function CourseTitle({ course }: { course: { className: string; courseName: string } | undefined }) {
+  if (!course) return <span className="rname">主讲教室</span>
+  return (
+    <span className="course-stage" key={`${course.className}-${course.courseName}`}>
+      <span className="rname course-in">{course.className}</span>
+      <span className="course-sub course-in2">{course.courseName}</span>
+    </span>
   )
 }
 
@@ -79,6 +91,14 @@ function TiltRoom({
 
 export default function Today() {
   const { data, error } = useToday()
+  const { current, next } = useCurrentSessions(data?.sessions)
+  const [consumeSession, setConsumeSession] = useState<{
+    id: number
+    classId: number
+    courseName: string
+    className: string
+  } | null>(null)
+  const [flash, setFlash] = useState('')
 
   if (error) {
     return (
@@ -92,7 +112,9 @@ export default function Today() {
   }
   if (!data) return <div className="loading">加载中…</div>
 
-  const [focus, second] = data.sessions
+  // 当前课程：按实时时间算，正在进行的那节；没有进行中的就取第一堂未取消课
+  const focus = current ?? data.sessions.find((s) => s.status !== 'cancelled') ?? data.sessions[0]
+  const second = next
   const [y, m, d] = data.date.split('-')
   const seatStudents = data.classStudents
   const outItems = data.equipment.items.filter((e) => e.status !== 'in_stock')
@@ -105,13 +127,29 @@ export default function Today() {
           {/* 教室 A */}
           <TiltRoom className={`room a blue${focus && focus.status !== 'cancelled' ? ' sel' : ''}`} tilt={2}>
             <div className="room-head">
-              <span className="rname">{focus ? focus.className : '主讲教室'}</span>
+              <CourseTitle course={focus ? { className: focus.className, courseName: focus.courseName } : undefined} />
+              {current && focus?.status === 'planned' && <span className="live live-on">进行中</span>}
               {focus?.status === 'done' && <span className="live">已下课</span>}
-              {focus?.status === 'planned' && <span className="live">待上课</span>}
+              {focus?.status === 'planned' && !current && <span className="live">待上课</span>}
               <span className="rbar">
                 <i style={{ width: `${Math.min(100, (seatStudents.length / 9) * 100)}%` }} />
               </span>
             </div>
+            {focus && focus.status !== 'cancelled' && focus.status !== 'done' && (
+              <button
+                className="room-consume"
+                onClick={() =>
+                  setConsumeSession({
+                    id: focus.id,
+                    classId: focus.classId,
+                    courseName: focus.courseName,
+                    className: focus.className,
+                  })
+                }
+              >
+                消课
+              </button>
+            )}
             <div className="board" />
             <div className="tzone">
               <span className="tz-name">王老师</span>
@@ -290,6 +328,20 @@ export default function Today() {
           第 {data.week} 周 · 演示数据，M1 起可编辑
         </p>
       </aside>
+
+      <ConsumeModal
+        session={consumeSession}
+        onClose={() => setConsumeSession(null)}
+        onDone={(msg) => {
+          setConsumeSession(null)
+          setFlash(msg)
+          setTimeout(() => setFlash(''), 2600)
+          // 消课后刷新今日数据
+          api<TodayData>('/today').then((d) => window.location.reload())
+        }}
+      />
+
+      {flash && <div className="st-flash">{flash}</div>}
     </>
   )
 }

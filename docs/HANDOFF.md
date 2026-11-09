@@ -195,6 +195,17 @@ teacher-workbench/
   解决：`scripts/set-icon.cjs` 用 `resedit` 直接写 PE 资源（图标 + ProductName），已固化进 `pack:slim`
 - 验证方式：读回 exe 的 VersionInfo，ProductName 应为「教培工作台」
 
+## 今日页实时时间 / 首页消课 / 课程切换动效（v1.7）
+
+- `useCurrentSessions` hook：每 30s tick 电脑时间，算「当前课程」(start<=now<end 且未 done) 和「下一节」(之后最近 planned)
+- 今日页教室 A 显示 current（无进行中则取第一堂未取消课），走廊显示 next
+- 首页消课：教室 A 右上角「消课」按钮 → 复用 ConsumeModal（三态），消课后 reload 今日数据
+- 课程切换动效：CourseTitle 用 key 触发重挂载，course-in/course-in2 从右下角滑入 + 落位抖动（keyframes overshoot，不用 opacity 避免 backwards fill 让文字消失）
+- 「进行中」状态 live-on 绿色 + 呼吸
+- 报名金额：POST /api/students 加 amount，报名课包时写入 charge 流水的 amount
+- today 接口 sessions 加 classId 字段
+- **坑**：course-in 动画用 opacity + `both` fill，headless 截图时动画未跑完文字消失；改纯 transform 位移
+
 ## 学员档案（v1.6）
 
 - students 表加 `gender` 列（迁移：PRAGMA table_info 检查 + ALTER TABLE）
@@ -291,6 +302,12 @@ POST /api/import/cancel → 反悔，删掉 pending 文件
 `pickPort()` 从 4600 开始探测，被占用才顺延。
 
 ## 变更记录
+
+### 2026-11-09 · v1.7（实时时间/首页消课/切换动效/报名金额）
+- 今日页按电脑时间判断当前课程和下一节，跨下课点自动切换
+- 首页当前课程可消课（复用三态弹窗）
+- 课程切换浮动动效（右下滑入+落位抖动）
+- 报名记录金额
 
 ### 2026-11-09 · v1.6（学员档案）
 - 新增学员（性别/家长姓名/家长电话/报名班级/课包）

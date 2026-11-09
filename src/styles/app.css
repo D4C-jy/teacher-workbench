@@ -260,7 +260,7 @@ button { cursor: pointer; }
 
 .room-head {
   position: absolute; left: 12px; top: 10px; right: 12px;
-  display: flex; align-items: center; gap: 7px; z-index: 3;
+  display: flex; align-items: flex-start; gap: 7px; z-index: 3;
 }
 .rname { font-size: 15px; font-weight: 680; }
 .rmeta {
@@ -1373,4 +1373,78 @@ button { cursor: pointer; }
   margin: 6px 0 0 !important;
   font-size: 12.5px;
   color: var(--ink-2);
+}
+
+/* ==================== 课程切换动效 ==================== */
+
+.course-stage {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 7px;
+  line-height: 1.2;
+  overflow: visible;
+  white-space: nowrap;
+}
+
+/* 班级名：从右下角滑入 + 落位抖动 */
+@keyframes course-slide-in {
+  0% { transform: translate(36px, 42px) scale(.86); }
+  55% { transform: translate(-3px, -2px) scale(1.03); }
+  70% { transform: translate(2px, 1px) scale(.99); }
+  82% { transform: translate(-1px, 0) scale(1.01); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+.course-in {
+  animation: course-slide-in .62s cubic-bezier(.22, 1, .36, 1) both;
+}
+
+/* 课程名：延迟进入，同样的滑入+抖动 */
+@keyframes course-slide-in-sub {
+  0% { transform: translateX(28px); }
+  60% { transform: translateX(-2px); }
+  75% { transform: translateX(1px); }
+  100% { transform: translateX(0); }
+}
+.course-in2 {
+  animation: course-slide-in-sub .58s .08s cubic-bezier(.22, 1, .36, 1) both;
+}
+
+.course-sub {
+  font-size: 11.5px;
+  color: #5c584f;
+  font-weight: 500;
+}
+
+/* 进行中的状态：绿色呼吸点 */
+.live.live-on {
+  background: #4a7a42;
+}
+.live.live-on::before {
+  animation: live-blink 1.2s ease-in-out infinite;
+}
+
+/* 教室 A 的消课按钮：悬浮在右上角 */
+.room-consume {
+  position: absolute;
+  right: 12px;
+  top: 46px;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--ink);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(30, 26, 20, .22);
+  transition: transform .18s cubic-bezier(.34, 1.56, .64, 1), background .15s;
+  z-index: 5;
+}
+.room-consume:hover { background: #2f2d28; transform: translateY(-1px); }
+.room-consume:active { transform: scale(.96); }
+
+@media (prefers-reduced-motion: reduce) {
+  .course-in, .course-in2, .live.live-on::before { animation: none !important; }
 }

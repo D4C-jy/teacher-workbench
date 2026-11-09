@@ -214,6 +214,18 @@ teacher-workbench/
 - `GET /api/students/:id` 返回 gender，详情页展示性别标签 + 家长联系方式
 - 学员页工具栏加「＋ 新增学员」，表单弹窗两列排布
 
+## 每账号独立数据隔离（v2.1）
+
+- **背景**：原设计所有账号共享同一份业务数据（单库），导致"登录哪个账号都是同一批学员"。
+- **方案**：给 5 个顶层实体表加 `owner_id`（courses/classes/students/equipment/time_slots），
+  关联表（enrollments/lesson_ledger/sessions/attendance/equipment_loans/schedule_rules）通过 JOIN 顶层实体的 owner 隔离。
+- **迁移**：老数据（owner_id=0）归最早注册账号；register 时第一个账号认领 seed 演示数据。
+- **查询**：所有 SELECT 按 `req.user.id` 过滤；所有 INSERT 写 owner_id；UPDATE/DELETE 校验归属。
+- **onboarded 按账号**：app_config key 改为 `onboarded:<userId>`，新账号重新走引导。
+- **clear-data 按 owner**：只删当前账号数据，不影响其他账号。
+- **equipment.code 去掉 UNIQUE**：不同账号可以有同编号。
+- 验证：abc 15 名学员 / wanglaoshi 0 名学员，隔离生效；各自 onboarded=false。
+
 ## 续费率公式 & 自动更新（v2.0 完成）
 
 ### 续费率

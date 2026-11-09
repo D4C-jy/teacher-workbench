@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS classes (
 CREATE TABLE IF NOT EXISTS students (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
   name           TEXT NOT NULL,
+  gender         TEXT,
   guardian_name  TEXT,
   guardian_phone TEXT,
   note           TEXT,
@@ -224,6 +225,11 @@ CREATE INDEX IF NOT EXISTS idx_rules_class ON schedule_rules(class_id);
   const lcols = db.prepare('PRAGMA table_info(lesson_ledger)').all() as Array<{ name: string }>
   if (!lcols.some((c) => c.name === 'amount')) {
     db.exec('ALTER TABLE lesson_ledger ADD COLUMN amount REAL')
+  }
+  // 学员性别
+  const scols = db.prepare('PRAGMA table_info(students)').all() as Array<{ name: string }>
+  if (!scols.some((c) => c.name === 'gender')) {
+    db.exec('ALTER TABLE students ADD COLUMN gender TEXT')
   }
   db.exec(`
     UPDATE sessions SET rule_id = (

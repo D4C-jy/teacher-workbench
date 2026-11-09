@@ -195,6 +195,14 @@ teacher-workbench/
   解决：`scripts/set-icon.cjs` 用 `resedit` 直接写 PE 资源（图标 + ProductName），已固化进 `pack:slim`
 - 验证方式：读回 exe 的 VersionInfo，ProductName 应为「教培工作台」
 
+## 学员档案（v1.6）
+
+- students 表加 `gender` 列（迁移：PRAGMA table_info 检查 + ALTER TABLE）
+- `POST /api/students`：新增学员，姓名/性别/家长姓名/家长电话/报名班级/报名课包，
+  选班级+课包时同时建报名 + charge 流水；重名返回 409
+- `GET /api/students/:id` 返回 gender，详情页展示性别标签 + 家长联系方式
+- 学员页工具栏加「＋ 新增学员」，表单弹窗两列排布
+
 ## 班级管理 & 消课三态（v1.5）
 
 - 班级：`GET /api/classes`（含每班学员名单+未分班学员）、`POST /api/classes`（建班）、
@@ -283,6 +291,11 @@ POST /api/import/cancel → 反悔，删掉 pending 文件
 `pickPort()` 从 4600 开始探测，被占用才顺延。
 
 ## 变更记录
+
+### 2026-11-09 · v1.6（学员档案）
+- 新增学员（性别/家长姓名/家长电话/报名班级/课包）
+- 学员详情展示性别、家长联系方式
+- students 表加 gender 列
 
 ### 2026-11-09 · v1.5（班级/消课三态/滚轮/账号卡片）
 - 班级管理（建班、调学生、转班）

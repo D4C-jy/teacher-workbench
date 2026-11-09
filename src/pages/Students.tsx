@@ -23,7 +23,14 @@ interface Summary {
 }
 
 interface Detail {
-  student: { id: number; name: string; guardian_name: string | null; guardian_phone: string | null; note: string | null }
+  student: {
+    id: number
+    name: string
+    gender: string | null
+    guardian_name: string | null
+    guardian_phone: string | null
+    note: string | null
+  }
   enrollments: Array<{
     id: number
     class_id: number
@@ -63,6 +70,15 @@ export default function Students() {
   const [recharge, setRecharge] = useState({ lessons: '10', note: '续费', expireAt: '', amount: '' })
   const [busy, setBusy] = useState(false)
   const [flash, setFlash] = useState('')
+  const [showAdd, setShowAdd] = useState(false)
+  const [addForm, setAddForm] = useState({
+    name: '',
+    gender: '',
+    guardianName: '',
+    guardianPhone: '',
+    classId: '',
+    lessons: '10',
+  })
 
   const load = useCallback(async () => {
     try {
@@ -97,6 +113,36 @@ export default function Students() {
       .then(setDetail)
       .catch(() => setDetail(null))
   }, [activeId])
+
+  async function doAdd(e: React.FormEvent) {
+    e.preventDefault()
+    if (!addForm.name.trim()) {
+      setFlash('请填学员姓名')
+      return
+    }
+    setBusy(true)
+    try {
+      await api('/students', {
+        body: {
+          name: addForm.name.trim(),
+          gender: addForm.gender || undefined,
+          guardianName: addForm.guardianName.trim(),
+          guardianPhone: addForm.guardianPhone.trim(),
+          classId: Number(addForm.classId || 0),
+          lessons: Number(addForm.lessons) || 0,
+        },
+      })
+      setShowAdd(false)
+      setAddForm({ name: '', gender: '', guardianName: '', guardianPhone: '', classId: '', lessons: '10' })
+      setFlash('已新增学员')
+      await load()
+      setTimeout(() => setFlash(''), 2400)
+    } catch (err) {
+      setFlash(err instanceof Error ? err.message : '新增失败')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function doRecharge(e: React.FormEvent) {
     e.preventDefault()
@@ -164,6 +210,9 @@ export default function Students() {
               </button>
             ))}
           </div>
+          <button className="pill small dark" onClick={() => setShowAdd(true)} style={{ height: 32 }}>
+            ＋ 新增学员
+          </button>
           <button className="pill small" onClick={exportCsv} style={{ height: 32 }}>
             导出 CSV
           </button>
@@ -217,10 +266,22 @@ export default function Students() {
           <div className="st-detail" key={activeId}>
             <div className="st-head">
               <div>
-                <h2>{detail.student.name}</h2>
+                <h2>
+                  {detail.student.name}
+                  {detail.student.gender && (
+                    <span className="st-gender">{detail.student.gender === 'male' ? '男' : '女'}</span>
+                  )}
+                </h2>
                 <p>
                   {detail.enrollments.map((e) => `${e.class_name} · ${e.course_name}`).join('　')}
                 </p>
+                {(detail.student.guardian_name || detail.student.guardian_phone) && (
+                  <p className="st-guardian">
+                    {detail.student.guardian_name && `家长：${detail.student.guardian_name}`}
+                    {detail.student.guardian_name && detail.student.guardian_phone && '　'}
+                    {detail.student.guardian_phone && `电话 ${detail.student.guardian_phone}`}
+                  </p>
+                )}
               </div>
               <span className="st-av big">
                 <Figure size={30} />
@@ -327,6 +388,89 @@ export default function Students() {
               </button>
               <button type="submit" className="pill small dark" disabled={busy}>
                 {busy ? '保存中…' : '确认充值'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {showAdd && (
+        <div className="mask" onClick={() => setShowAdd(false)}>
+          <form className="dlg" style={{ width: 440 }} onClick={(e) => e.stopPropagation()} onSubmit={doAdd}>
+            <div className="dlg-head">
+              <h3>新增学员</h3>
+              <button type="button" className="tt-close" onClick={() => setShowAdd(false)}>×</button>
+            </div>
+            <div className="dlg-body" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <label>
+                姓名 *
+                <input
+                  value={addForm.name}
+                  onChange={(e) => setAddForm({ ...addForm, name: e.target.value })}
+                  placeholder="学员姓名"
+                  autoFocus
+                />
+              </label>
+              <label>
+                性别
+                <select
+                  value={addForm.gender}
+                  onChange={(e) => setAddForm({ ...addForm, gender: e.target.value })}
+                >
+                  <option value="">（未设置）</option>
+                  <option value="male">男</option>
+                  <option value="female">女</option>
+                </select>
+              </label>
+              <label>
+                家长姓名
+                <input
+                  value={addForm.guardianName}
+                  onChange={(e) => setAddForm({ ...addForm, guardianName: e.target.value })}
+                  placeholder="家长姓名（可留空）"
+                />
+              </label>
+              <label>
+                家长电话
+                <input
+                  value={addForm.guardianPhone}
+                  onChange={(e) => setAddForm({ ...addForm, guardianPhone: e.target.value })}
+                  placeholder="手机号（可留空）"
+                />
+              </label>
+              <label>
+                报名班级
+                <select
+                  value={addForm.classId}
+                  onChange={(e) => setAddForm({ ...addForm, classId: e.target.value })}
+                >
+                  <option value="">（暂不报名）</option>
+                  {classes.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}（{c.course_name}）
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                报名课包（课时）
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={addForm.lessons}
+                  onChange={(e) => setAddForm({ ...addForm, lessons: e.target.value })}
+                  placeholder="例如 10"
+                />
+              </label>
+            </div>
+            <p className="dlg-hint">
+              选了报名班级和课包，会同时建一条报名记录和充值流水。也可以只建学员，稍后再报名。
+            </p>
+            <div className="dlg-foot">
+              <button type="button" className="pill small" onClick={() => setShowAdd(false)}>取消</button>
+              <button type="submit" className="pill small dark" disabled={busy}>
+                {busy ? '保存中…' : '保存'}
               </button>
             </div>
           </form>

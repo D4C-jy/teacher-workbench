@@ -1356,3 +1356,21 @@ button { cursor: pointer; }
 .ck-state.leave.on { background: #fbf0dc; color: #8a5a10; border-color: #f0d9a8; }
 .ck-state.absent.on { background: #f4f4f4; color: var(--ink-3); border-color: #ddd; }
 .ck-row { grid-template-columns: 1fr auto; }
+
+/* 学员性别标签 + 家长信息 */
+.st-gender {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-3);
+  background: #f0ece3;
+  border-radius: 999px;
+  padding: 2px 9px;
+  vertical-align: middle;
+}
+.st-guardian {
+  margin: 6px 0 0 !important;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}

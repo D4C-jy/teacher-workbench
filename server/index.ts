@@ -702,8 +702,17 @@ app.get('/api/students', requireAuth, (req, res) => {
 
 app.get('/api/students/:id', requireAuth, (req, res) => {
   const id = Number(req.params.id)
-  const student = db.prepare('SELECT id, name, guardian_name, guardian_phone, note FROM students WHERE id = ?').get(id) as
-    | { id: number; name: string; guardian_name: string | null; guardian_phone: string | null; note: string | null }
+  const student = db
+    .prepare('SELECT id, name, gender, guardian_name, guardian_phone, note FROM students WHERE id = ?')
+    .get(id) as
+    | {
+        id: number
+        name: string
+        gender: string | null
+        guardian_name: string | null
+        guardian_phone: string | null
+        note: string | null
+      }
     | undefined
   if (!student) return res.status(404).json({ error: '学员不存在' })
 
@@ -735,6 +744,53 @@ app.get('/api/students/:id', requireAuth, (req, res) => {
     .all(id)
 
   res.json({ student, enrollments, ledger })
+})
+
+/** 新增学员：姓名/性别/家长联系方式/报名课包 */
+app.post('/api/students', requireAuth, (req, res) => {
+  const name = String(req.body?.name ?? '').trim()
+  const gender = ['male', 'female'].includes(req.body?.gender) ? req.body.gender : null
+  const guardianName = String(req.body?.guardianName ?? '').trim() || null
+  const guardianPhone = String(req.body?.guardianPhone ?? '').trim() || null
+  const classId = Number(req.body?.classId || 0)
+  const lessons = Number(req.body?.lessons ?? 0) || 0
+
+  if (!name) return res.status(400).json({ error: '请填学员姓名' })
+
+  const dup = db.prepare('SELECT id FROM students WHERE name = ? AND archived = 0').get(name)
+  if (dup) return res.status(409).json({ error: '这个姓名的学员已存在' })
+
+  let sid = 0
+  tx(() => {
+    sid = Number(
+      db
+        .prepare('INSERT INTO students (name, gender, guardian_name, guardian_phone) VALUES (?, ?, ?, ?)')
+        .run(name, gender, guardianName, guardianPhone).lastInsertRowid
+    )
+
+    // 报名课包：选了班级就建一条报名 + 充值流水
+    if (classId) {
+      const cls = db
+        .prepare('SELECT id, course_id FROM classes WHERE id = ?')
+        .get(classId) as { id: number; course_id: number } | undefined
+      if (cls) {
+        const eid = Number(
+          db
+            .prepare(
+              'INSERT INTO enrollments (student_id, class_id, course_id, purchased_lessons, bonus_lessons) VALUES (?, ?, ?, ?, 0)'
+            )
+            .run(sid, classId, cls.course_id, lessons).lastInsertRowid
+        )
+        if (lessons > 0) {
+          db.prepare(
+            "INSERT INTO lesson_ledger (enrollment_id, type, delta, occurred_at, reason) VALUES (?, 'charge', ?, datetime('now','localtime'), ?)"
+          ).run(eid, lessons, '报名缴费')
+        }
+      }
+    }
+  })
+
+  res.json({ ok: true, id: sid })
 })
 
 app.post('/api/students/:id/recharge', requireAuth, (req, res) => {

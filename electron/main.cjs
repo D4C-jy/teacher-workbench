@@ -43,50 +43,21 @@ global.__twbNative = {
     app.relaunch()
     app.exit(0)
   },
-  // 手动检查更新：返回 { hasUpdate, version, current }，有新版本时弹下载询问框
+  // 手动检查更新：触发 checkForUpdates，前端通过 getUpdateState 轮询结果
   checkUpdate() {
-    return new Promise((resolve) => {
-      if (!updateReady || !app.isPackaged) {
-        resolve({ ok: false, msg: '当前环境不支持自动更新（开发版）' })
-        return
-      }
-      let settled = false
-      const finish = (r) => {
-        if (!settled) {
-          settled = true
-          resolve(r)
-        }
-      }
-
-      // 临时监听"有更新"
-      const onAvailable = (info) => {
-        finish({ ok: true, hasUpdate: true, version: info.version, current: app.getVersion() })
-        const choice = dialog.showMessageBoxSync(mainWindow, {
-          type: 'info',
-          title: '发现新版本',
-          message: `发现新版本 v${info.version}（当前 v${app.getVersion()}）`,
-          detail: '是否现在下载更新？下载完成后重启即可安装。数据不会丢失。',
-          buttons: ['下载更新', '稍后再说'],
-          defaultId: 0,
-        })
-        if (choice === 0) autoUpdater.downloadUpdate()
-      }
-      const onNotAvailable = () => {
-        finish({ ok: true, hasUpdate: false, current: app.getVersion() })
-      }
-      const onError = (e) => {
-        finish({ ok: false, msg: e?.message || '检查更新失败' })
-      }
-
-      autoUpdater.once('update-available', onAvailable)
-      autoUpdater.once('update-not-available', onNotAvailable)
-      autoUpdater.once('error', onError)
-
-      autoUpdater.checkForUpdates().catch(onError)
-
-      // 15 秒超时兜底
-      setTimeout(() => finish({ ok: false, msg: '检查更新超时' }), 15000)
+    if (!updateReady || !app.isPackaged) {
+      return Promise.resolve({ ok: false, msg: '当前环境不支持自动更新' })
+    }
+    updateDialogShown = false
+    updateState = { status: 'checking', percent: 0, version: '', current: app.getVersion() }
+    autoUpdater.checkForUpdates().catch(() => {
+      updateState = { status: 'error', percent: 0, version: '', current: app.getVersion() }
     })
+    return Promise.resolve({ ok: true, checking: true })
+  },
+  // 获取当前更新状态（下载进度等），前端轮询用
+  getUpdateState() {
+    return { ok: true, ...updateState }
   },
 }
 
@@ -199,24 +170,48 @@ function createWindow() {
 
 // 自动更新：只在打包环境（有 app-update.yml）里启用
 let updateReady = false
+let updateDialogShown = false
+let updateState = { status: 'idle', percent: 0, version: '', current: '' }
+
 function setupAutoUpdate() {
   try {
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
 
     autoUpdater.on('update-available', (info) => {
+      updateState = { status: 'available', percent: 0, version: info.version, current: app.getVersion() }
+      // 只弹一次询问框
+      if (updateDialogShown) return
+      updateDialogShown = true
       const choice = dialog.showMessageBoxSync(mainWindow, {
         type: 'info',
         title: '发现新版本',
-        message: `发现新版本 v${info.version}，是否现在下载更新？`,
-        detail: '下载完成后，下次启动程序时自动安装。数据不会丢失。',
+        message: `发现新版本 v${info.version}（当前 v${app.getVersion()}）`,
+        detail: '是否现在下载更新？下载完成后重启即可安装。数据不会丢失。',
         buttons: ['下载更新', '稍后再说'],
         defaultId: 0,
       })
-      if (choice === 0) autoUpdater.downloadUpdate()
+      if (choice === 0) {
+        autoUpdater.downloadUpdate().catch(() => {
+          updateState = { status: 'error', percent: 0, version: info.version, current: app.getVersion() }
+        })
+      } else {
+        updateState = { status: 'idle', percent: 0, version: '', current: app.getVersion() }
+        updateDialogShown = false
+      }
+    })
+
+    autoUpdater.on('download-progress', (p) => {
+      updateState = {
+        status: 'downloading',
+        percent: Math.round(p.percent),
+        version: updateState.version,
+        current: app.getVersion(),
+      }
     })
 
     autoUpdater.on('update-downloaded', () => {
+      updateState = { status: 'downloaded', percent: 100, version: updateState.version, current: app.getVersion() }
       dialog
         .showMessageBox(mainWindow, {
           type: 'info',
@@ -231,8 +226,9 @@ function setupAutoUpdate() {
         })
     })
 
-    autoUpdater.on('error', () => {
-      // 更新失败静默处理，不影响正常使用
+    autoUpdater.on('error', (e) => {
+      updateState = { status: 'error', percent: 0, version: updateState.version, current: app.getVersion() }
+      updateDialogShown = false
     })
 
     updateReady = true

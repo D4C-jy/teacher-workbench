@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
 import { useAuth } from '../lib/auth'
 
@@ -81,28 +81,79 @@ export default function Settings() {
     setTimeout(() => setFlash(''), 2400)
   }
 
+  const pollTimer = useRef<number | null>(null)
+
   async function checkUpdate() {
     setChecking(true)
     setUpdateMsg('')
     try {
-      const r = await api<{ ok: boolean; hasUpdate?: boolean; version?: string; current?: string; msg?: string }>(
+      const r = await api<{ ok: boolean; checking?: boolean; msg?: string }>(
         '/native/check-update',
         { method: 'POST' }
       )
-      if (r.current) setAppVersion(r.current)
-      if (r.hasUpdate) {
-        setUpdateMsg(`发现新版本 v${r.version}，已弹出下载询问`)
-      } else if (r.ok) {
-        setUpdateMsg(`已是最新版本 v${r.current}`)
-      } else {
-        setUpdateMsg(r.msg || '检查更新失败')
+      if (!r.ok) {
+        setUpdateMsg(r.msg || '当前环境不支持自动更新')
+        setChecking(false)
+        return
       }
+      setUpdateMsg('正在检查更新…')
+      // 轮询下载状态，显示进度
+      pollTimer.current = window.setInterval(async () => {
+        try {
+          const st = await api<{ ok: boolean; status: string; percent: number; version: string; current: string }>(
+            '/native/get-update-state',
+            { method: 'POST' }
+          )
+          if (st.current) setAppVersion(st.current)
+          if (st.status === 'checking') {
+            setUpdateMsg('正在检查更新…')
+          } else if (st.status === 'available') {
+            setUpdateMsg(`发现新版本 v${st.version}，已弹出下载询问`)
+            stopPoll()
+          } else if (st.status === 'downloading') {
+            setUpdateMsg(`正在下载 v${st.version}… ${st.percent}%`)
+          } else if (st.status === 'downloaded') {
+            setUpdateMsg('下载完成，等待重启安装')
+            stopPoll()
+          } else if (st.status === 'error') {
+            setUpdateMsg('检查或下载更新失败')
+            stopPoll()
+          } else if (st.status === 'idle') {
+            setUpdateMsg(`已是最新版本 v${st.current}`)
+            stopPoll()
+          } else if (st.status === 'unsupported') {
+            setUpdateMsg('当前环境不支持自动更新')
+            stopPoll()
+          }
+        } catch {
+          /* 轮询失败忽略 */
+        }
+      }, 500)
+      // 15 秒后停止轮询（兜底）
+      setTimeout(() => {
+        if (pollTimer.current) {
+          stopPoll()
+        }
+      }, 15000)
     } catch (err) {
       setUpdateMsg(err instanceof Error ? err.message : '检查更新失败')
-    } finally {
       setChecking(false)
     }
   }
+
+  function stopPoll() {
+    if (pollTimer.current) {
+      clearInterval(pollTimer.current)
+      pollTimer.current = null
+      setChecking(false)
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      if (pollTimer.current) clearInterval(pollTimer.current)
+    }
+  }, [])
 
   async function saveConfig(e: React.FormEvent) {
     e.preventDefault()

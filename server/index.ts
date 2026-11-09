@@ -5,6 +5,7 @@ import { DatabaseSync as Database } from 'node:sqlite'
 import {
   db,
   seedIfEmpty,
+  seedDemoData,
   todayStr,
   tx,
   DB_FILE,
@@ -76,17 +77,9 @@ app.post('/api/auth/register', (req, res) => {
 
   const userId = Number(info.lastInsertRowid)
 
-  // 第一个账号：认领启动时 seed 的演示数据（owner_id=0 的）
-  if (countUsers() === 1) {
-    for (const table of ['courses', 'classes', 'students', 'equipment', 'time_slots']) {
-      db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner_id = 0`).run(userId)
-    }
-  }
-
   res.json({
     token: issueToken(userId),
     user: { id: userId, username: name, displayName: display },
-    seeded: countUsers() === 1,
   })
 })
 
@@ -1544,6 +1537,12 @@ app.post('/api/native/check-update', async (_req, res) => {
   }
 })
 
+app.post('/api/native/get-update-state', async (_req, res) => {
+  const api = nativeApi()
+  if (!api?.getUpdateState) return res.json({ ok: true, status: 'unsupported' })
+  res.json(api.getUpdateState())
+})
+
 /* ---------------- 首次启动引导 ---------------- */
 
 app.get('/api/onboard-state', requireAuth, (req, res) => {
@@ -1560,6 +1559,18 @@ app.post('/api/onboard-complete', requireAuth, (req, res) => {
   const uid = req.user!.id
   db.prepare('INSERT OR REPLACE INTO app_config (key, value) VALUES (?, ?)').run(`onboarded:${uid}`, '1')
   res.json({ ok: true })
+})
+
+/** 为当前账号注入一套演示数据 */
+app.post('/api/settings/seed-demo', requireAuth, (req, res) => {
+  const ownerId = req.user!.id
+  try {
+    seedDemoData(ownerId)
+    res.json({ ok: true })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: '注入演示数据失败' })
+  }
 })
 
 /** 清空当前账号的业务数据，保留账号与全局配置 */

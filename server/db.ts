@@ -244,6 +244,35 @@ CREATE INDEX IF NOT EXISTS idx_rules_class ON schedule_rules(class_id);
       SELECT MIN(id) FROM courses GROUP BY name
     )
   `)
+
+  // equipment.code 去掉 UNIQUE（不同账号可以有同编号）
+  const eqSql = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'equipment'").get() as { sql: string } | undefined
+  if (eqSql?.sql.includes('UNIQUE')) {
+    db.exec('PRAGMA foreign_keys = OFF')
+    db.exec('BEGIN')
+    try {
+      db.exec(`
+        CREATE TABLE equipment_new (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          owner_id     INTEGER NOT NULL DEFAULT 0,
+          code         TEXT NOT NULL,
+          model        TEXT,
+          status       TEXT NOT NULL DEFAULT 'in_stock',
+          purchased_at TEXT,
+          note         TEXT
+        )
+      `)
+      db.exec('INSERT INTO equipment_new (id, owner_id, code, model, status, purchased_at, note) SELECT id, owner_id, code, model, status, purchased_at, note FROM equipment')
+      db.exec('DROP TABLE equipment')
+      db.exec('ALTER TABLE equipment_new RENAME TO equipment')
+      db.exec('COMMIT')
+    } catch (e) {
+      db.exec('ROLLBACK')
+      throw e
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON')
+    }
+  }
 }
 
 /* ---- 轻量迁移：课次追源到规则 ---- */
@@ -326,27 +355,41 @@ export function todayStr(d = new Date()): string {
 
 /** 首次启动写入演示数据，保证一登录就有东西看 */
 export function seedIfEmpty() {
-  if ((get<{ n: number }>('SELECT COUNT(*) AS n FROM students')?.n ?? 0) > 0) return
+  // 启动时：确保全局课程存在（owner_id=0），不做账号级 seed
+  seedGlobalCourses()
+}
+
+/** 确保全局课程模板存在（所有账号共享） */
+export function seedGlobalCourses() {
+  const names = ['无人机编程', '图形化编程', 'Python 进阶', 'C++', '机械臂', 'XRmaker', '3D 打印']
+  for (const cn of names) {
+    if (!get<{ id: number }>('SELECT id FROM courses WHERE name = ?', cn)) {
+      run('INSERT INTO courses (name, default_minutes) VALUES (?, 90)', cn)
+    }
+  }
+}
+
+/** 为指定账号注入一套演示数据 */
+export function seedDemoData(ownerId: number) {
+  // 该账号已有学员则跳过
+  if ((get<{ n: number }>('SELECT COUNT(*) AS n FROM students WHERE owner_id = ?', ownerId)?.n ?? 0) > 0) return
 
   const today = todayStr()
 
   tx(() => {
-    const cDrone = run('INSERT INTO courses (name, default_minutes, note) VALUES (?, ?, ?)', '无人机编程', 90, '入门到竞赛')
-    const cBlock = run('INSERT INTO courses (name, default_minutes, note) VALUES (?, ?, ?)', '图形化编程', 90, 'Scratch / 图形化')
-    const cPy = run('INSERT INTO courses (name, default_minutes, note) VALUES (?, ?, ?)', 'Python 进阶', 90, '语法与项目')
-    // 其余课程（迁移时也会按名字补，见下方）
-    run("INSERT INTO courses (name, default_minutes, note) VALUES ('C++', 90, '信息学竞赛')")
-    run("INSERT INTO courses (name, default_minutes, note) VALUES ('机械臂', 90, '机器人')")
-    run("INSERT INTO courses (name, default_minutes, note) VALUES ('XRmaker', 90, 'XR 创作')")
-    run("INSERT INTO courses (name, default_minutes, note) VALUES ('3D 打印', 90, '建模与打印')")
+    seedGlobalCourses()
 
-    const clA = run('INSERT INTO classes (course_id, name, capacity) VALUES (?, ?, ?)', cDrone, '无人机 A 班', 9)
-    const clB = run('INSERT INTO classes (course_id, name, capacity) VALUES (?, ?, ?)', cBlock, '图形化 B 班', 12)
-    const clC = run('INSERT INTO classes (course_id, name, capacity) VALUES (?, ?, ?)', cPy, 'Python A 班', 12)
+    const cDrone = get<{ id: number }>('SELECT id FROM courses WHERE name = ?', '无人机编程')!
+    const cBlock = get<{ id: number }>('SELECT id FROM courses WHERE name = ?', '图形化编程')!
+    const cPy = get<{ id: number }>('SELECT id FROM courses WHERE name = ?', 'Python 进阶')!
 
-    const s1 = run('INSERT INTO time_slots (name, start_time, end_time) VALUES (?, ?, ?)', '第一节', '09:00', '10:30')
-    const s2 = run('INSERT INTO time_slots (name, start_time, end_time) VALUES (?, ?, ?)', '第二节', '14:00', '15:30')
-    const s3 = run('INSERT INTO time_slots (name, start_time, end_time) VALUES (?, ?, ?)', '第三节', '18:30', '20:00')
+    const clA = run('INSERT INTO classes (owner_id, course_id, name, capacity) VALUES (?, ?, ?, ?)', ownerId, cDrone.id, '无人机 A 班', 9)
+    const clB = run('INSERT INTO classes (owner_id, course_id, name, capacity) VALUES (?, ?, ?, ?)', ownerId, cBlock.id, '图形化 B 班', 12)
+    const clC = run('INSERT INTO classes (owner_id, course_id, name, capacity) VALUES (?, ?, ?, ?)', ownerId, cPy.id, 'Python A 班', 12)
+
+    const s1 = run('INSERT INTO time_slots (owner_id, name, start_time, end_time) VALUES (?, ?, ?, ?)', ownerId, '第一节', '09:00', '10:30')
+    const s2 = run('INSERT INTO time_slots (owner_id, name, start_time, end_time) VALUES (?, ?, ?, ?)', ownerId, '第二节', '14:00', '15:30')
+    const s3 = run('INSERT INTO time_slots (owner_id, name, start_time, end_time) VALUES (?, ?, ?, ?)', ownerId, '第三节', '18:30', '20:00')
 
     // 每个班每周两次：一次在今天，一次在周末（教培常见排法）
     const wd = new Date(today).getDay()
@@ -372,8 +415,8 @@ export function seedIfEmpty() {
     ]
 
     for (const [name, remain, used, classId] of roster) {
-      const sid = run('INSERT INTO students (name, guardian_phone) VALUES (?, ?)', name, '138****0000')
-      const courseId = classId === clA ? cDrone : classId === clB ? cBlock : cPy
+      const sid = run('INSERT INTO students (owner_id, name, guardian_phone) VALUES (?, ?, ?)', ownerId, name, '138****0000')
+      const courseId = classId === clA ? cDrone.id : classId === clB ? cBlock.id : cPy.id
       const eid = run(
         'INSERT INTO enrollments (student_id, class_id, course_id, purchased_lessons, bonus_lessons, unit_price) VALUES (?, ?, ?, ?, ?, ?)',
         sid, classId, courseId, remain + used, 0, 120
@@ -391,11 +434,11 @@ export function seedIfEmpty() {
       }
     }
 
-    run('INSERT INTO equipment (code, model, status, note) VALUES (?, ?, ?, ?)', 'UAV-001', 'DJI Mini 4K', 'in_stock', null)
-    run('INSERT INTO equipment (code, model, status, note) VALUES (?, ?, ?, ?)', 'UAV-002', 'DJI Mini 4K', 'in_stock', null)
-    run('INSERT INTO equipment (code, model, status, note) VALUES (?, ?, ?, ?)', 'UAV-003', 'DJI Mini 4K', 'in_stock', null)
-    const eq4 = run('INSERT INTO equipment (code, model, status, note) VALUES (?, ?, ?, ?)', 'UAV-004', 'DJI Mini 4K', 'lent', null)
-    run('INSERT INTO equipment (code, model, status, note) VALUES (?, ?, ?, ?)', 'UAV-005', 'Tello EDU', 'repair', '桨叶待更换')
+    run('INSERT INTO equipment (owner_id, code, model, status, note) VALUES (?, ?, ?, ?, ?)', ownerId, 'UAV-001', 'DJI Mini 4K', 'in_stock', null)
+    run('INSERT INTO equipment (owner_id, code, model, status, note) VALUES (?, ?, ?, ?, ?)', ownerId, 'UAV-002', 'DJI Mini 4K', 'in_stock', null)
+    run('INSERT INTO equipment (owner_id, code, model, status, note) VALUES (?, ?, ?, ?, ?)', ownerId, 'UAV-003', 'DJI Mini 4K', 'in_stock', null)
+    const eq4 = run('INSERT INTO equipment (owner_id, code, model, status, note) VALUES (?, ?, ?, ?, ?)', ownerId, 'UAV-004', 'DJI Mini 4K', 'lent', null)
+    run('INSERT INTO equipment (owner_id, code, model, status, note) VALUES (?, ?, ?, ?, ?)', ownerId, 'UAV-005', 'Tello EDU', 'repair', '桨叶待更换')
 
     const ses1 = run(
       'INSERT INTO sessions (date, rule_id, class_id, slot_id, room, status, note) VALUES (?, ?, ?, ?, ?, ?, ?)',

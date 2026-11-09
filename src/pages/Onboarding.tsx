@@ -49,7 +49,11 @@ export default function Onboarding({ state, onDone }: { state: OnboardState; onD
   async function finish() {
     setBusy(true)
     try {
-      if (source === 'blank') await api('/settings/clear-data', { method: 'POST' })
+      if (source === 'demo') {
+        await api('/settings/seed-demo', { method: 'POST' })
+      } else {
+        await api('/settings/clear-data', { method: 'POST' })
+      }
       await api('/onboard-complete', { method: 'POST' })
       onDone()
     } catch (err) {

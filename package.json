@@ -1,7 +1,7 @@
 {
   "name": "teacher-workbench",
   "private": true,
-  "version": "2.1.3",
+  "version": "2.1.4",
   "type": "module",
   "description": "教培老师个人工作台：课时、课表、器材",
   "scripts": {

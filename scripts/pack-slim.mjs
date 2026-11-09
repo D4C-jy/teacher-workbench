@@ -2,7 +2,7 @@
  * 精简打包：只带中英文语言包，去掉 dxcompiler，
  * 再让 electron-builder 用这个目录做 NSIS（跳过它自己的解压步骤）。
  */
-import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { execSync } from 'node:child_process'
 import path from 'node:path'
 
@@ -59,6 +59,13 @@ console.log('· 复制应用')
 for (const item of ['dist', 'dist-server', 'electron', 'package.json']) {
   cpSync(path.join(root, item), path.join(appDir, item), { recursive: true })
 }
+
+// 生成 app-update.yml（electron-updater 找更新源的依据）
+console.log('· 生成 app-update.yml')
+writeFileSync(
+  path.join(staging, 'resources', 'app-update.yml'),
+  'provider: github\nowner: D4C-jy\nrepo: teacher-workbench\n'
+)
 
 // 用 --prepackaged 时 builder 不会给 exe 打图标，这里自己补
 const icoPath = path.join(root, 'build', 'icon.ico')

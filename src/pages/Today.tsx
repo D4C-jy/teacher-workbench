@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type TodayData } from '../lib/api'
 import { Figure, Uav } from '../components/Glyphs'
+import { useTilt } from '../lib/useTilt'
 
 const LOW_THRESHOLD = 3
 
@@ -39,6 +40,24 @@ function Seats({ students }: { students: Array<{ id: number; name: string; balan
   )
 }
 
+function TiltRoom({
+  className,
+  children,
+  tilt = 2.5,
+}: {
+  className: string
+  children: React.ReactNode
+  tilt?: number
+}) {
+  const ref = useTilt<HTMLDivElement>(tilt)
+  return (
+    <div ref={ref} className={`room-tilt ${className}`}>
+      <span className="room-glare" aria-hidden="true" />
+      {children}
+    </div>
+  )
+}
+
 export default function Today() {
   const { data, error } = useToday()
 
@@ -65,7 +84,7 @@ export default function Today() {
       <div className="canvas">
         <div className="rooms">
           {/* 教室 A */}
-          <div className={`room a blue${focus && focus.status !== 'cancelled' ? ' sel' : ''}`}>
+          <TiltRoom className={`room a blue${focus && focus.status !== 'cancelled' ? ' sel' : ''}`} tilt={2}>
             <div className="room-head">
               <span className="rname">{focus ? focus.className : '主讲教室'}</span>
               {focus?.status === 'done' && <span className="live">已下课</span>}
@@ -84,10 +103,10 @@ export default function Today() {
             <span className="shelfbox" style={{ left: 12, top: 38 }} />
             <span className="cooler" style={{ right: 14, bottom: 14 }} />
             <span className="plant" style={{ left: 14, bottom: 14 }} />
-          </div>
+          </TiltRoom>
 
           {/* 器材间 */}
-          <div className="room c cream">
+          <TiltRoom className="room c cream">
             <div className="room-head">
               <span className="rname">器材间</span>
               <span className="rmeta">{data.equipment.inStock} 在库</span>
@@ -122,10 +141,10 @@ export default function Today() {
               借出 {data.equipment.lent} · 维修 {data.equipment.repair}
             </span>
             <span className="plant" style={{ right: 14, top: 44 }} />
-          </div>
+          </TiltRoom>
 
           {/* 前台 */}
-          <div className="room d pink">
+          <TiltRoom className="room d pink">
             <div className="room-head">
               <span className="rname">前台</span>
               <span className="rmeta">接待</span>
@@ -138,10 +157,10 @@ export default function Today() {
             <div className="front-desk" />
             <div className="mat" />
             <span className="plant" style={{ left: 14, top: 40 }} />
-          </div>
+          </TiltRoom>
 
           {/* 走廊 */}
-          <div className="room e gray">
+          <TiltRoom className="room e gray">
             <div className="room-head">
               <span className="rname">走廊 · 休息区</span>
               <span className="rmeta">
@@ -161,7 +180,7 @@ export default function Today() {
             <span className="chair" style={{ right: 210, bottom: 64 }} />
             <span className="plant" style={{ right: 22, bottom: 12 }} />
             <span className="cooler" style={{ left: 16, bottom: 14 }} />
-          </div>
+          </TiltRoom>
         </div>
       </div>
 

@@ -195,6 +195,17 @@ teacher-workbench/
   解决：`scripts/set-icon.cjs` 用 `resedit` 直接写 PE 资源（图标 + ProductName），已固化进 `pack:slim`
 - 验证方式：读回 exe 的 VersionInfo，ProductName 应为「教培工作台」
 
+## 动效
+
+- ③ 弹性按压：`.pill/.eq-btn/.tab/.tt-card/.st-row/.ob-choice` 按下 `scale(.96)` + 内阴影，
+  松手用 `cubic-bezier(.34,1.56,.64,1)` 回弹（该曲线首段 >1 会产生轻微超调）。纯 CSS，无 JS。
+- ① 3D 倾斜：`src/lib/useTilt.ts` hook，只用于今日页房间（`TiltRoom` 组件）。
+  mousemove 算 rotateX/rotateY（最大 2–3°），反光 `.room-glare` 是跟随鼠标的径向渐变，`mix-blend-mode: soft-light`。
+  松手 `cubic-bezier(.22,1,.36,1)` 回正。`requestAnimationFrame` 节流，触屏(`hover:none`)自动跳过。
+- 两者都包在 `@media (prefers-reduced-motion: reduce)` 里，系统关闭动效时自动失效。
+- ② 流体胶囊形变**未采用**：按钮→面板的形变会抹掉"点击"语义、与扁平风格冲突、JS 动态算圆角有卡顿风险。
+- 器材卡 hover 上浮 1px、学员头像 hover 放大 1.08，作为补充微动效。
+
 ## 导入与还原（换电脑）
 
 **整库导入是"下次启动生效"**，因为运行中的 SQLite 连接不能直接被替换：
@@ -235,6 +246,12 @@ POST /api/import/cancel → 反悔，删掉 pending 文件
 `pickPort()` 从 4600 开始探测，被占用才顺延。
 
 ## 变更记录
+
+### 2026-11-09 · v1.3（动效）
+- 全站弹性按压反馈（scale .96 + 内阴影 + 回弹超调）
+- 今日页四房间 3D 倾斜 + 径向反光（useTilt hook）
+- 器材卡上浮、学员头像放大等补充微动效
+- 全部尊重 prefers-reduced-motion
 
 ### 2026-11-09 · v1.2（导入）
 - 整库导入：上传 .db → 校验 → pending → 重启替换，旧库保留 .bak 可反悔

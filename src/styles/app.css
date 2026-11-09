@@ -1053,3 +1053,76 @@ button { cursor: pointer; }
 .set-csv span { color: var(--ink-3); }
 .set-csv em { font-family: var(--mono); font-style: normal; text-align: right; color: var(--ink-2); }
 .set-csv-more { color: var(--ink-3); font-size: 11.5px; padding-top: 6px; }
+
+/* ==================== 动效 ==================== */
+
+/* 尊重系统“减少动态效果”设置 */
+@media (prefers-reduced-motion: reduce) {
+  .pill, .eq-btn, .tab, .tt-card, .st-row, .ob-choice, .room,
+  .st-av, .eq-card { transition: none !important; }
+  .room-tilt { transform: none !important; }
+  .room-glare { display: none !important; }
+}
+
+/* ---------- ③ 弹性微缩触觉反馈（全站按钮/可点元素） ---------- */
+
+.pill,
+.eq-btn,
+.tab,
+.tt-card,
+.st-row,
+.ob-choice {
+  transition:
+    transform .18s cubic-bezier(.34, 1.56, .64, 1),   /* 回弹带超调 */
+    box-shadow .18s ease,
+    background .15s ease;
+  will-change: transform;
+}
+
+/* 按下：压缩到 0.96 + 内阴影（深压感） */
+.pill:active,
+.eq-btn:active,
+.tab:active,
+.tt-card:active,
+.st-row:active,
+.ob-choice:active {
+  transform: scale(.96);
+  box-shadow: inset 0 2px 4px rgba(30, 26, 20, .18), var(--shadow-1);
+}
+
+/* 深色按钮按下内阴影用浅色，保证可见 */
+.pill.dark:active {
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, .35);
+}
+
+/* 卡片动作（器材卡、学员头像）也统一弹性 */
+.eq-card {
+  transition: transform .18s cubic-bezier(.34, 1.56, .64, 1), box-shadow .18s ease;
+}
+.eq-card:hover { transform: translateY(-1px); }
+
+.st-av {
+  transition: transform .18s cubic-bezier(.34, 1.56, .64, 1);
+}
+.st-row:hover .st-av { transform: scale(1.08); }
+
+/* ---------- ① 3D 倾斜光影面板（仅今日页房间） ---------- */
+
+.room-tilt {
+  transform-style: preserve-3d;
+  transition: transform .5s cubic-bezier(.22, 1, .36, 1);
+  will-change: transform;
+}
+
+/* 径向反光，跟随鼠标位置移动 */
+.room-glare {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .35s ease;
+  mix-blend-mode: soft-light;
+}
+.room:hover .room-glare {
+  opacity: 1;
+}

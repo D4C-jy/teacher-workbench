@@ -1,7 +1,18 @@
 import express from 'express'
 import fs from 'node:fs'
 import path from 'node:path'
-import { db, seedIfEmpty, todayStr, tx, DB_FILE, DATA_DIR, HOME_DIR, LOCATION_FILE } from './db'
+import { DatabaseSync as Database } from 'node:sqlite'
+import {
+  db,
+  seedIfEmpty,
+  todayStr,
+  tx,
+  DB_FILE,
+  DATA_DIR,
+  HOME_DIR,
+  LOCATION_FILE,
+  PENDING_IMPORT_FILE,
+} from './db'
 import {
   hashPassword,
   verifyPassword,
@@ -15,6 +26,8 @@ import {
 const PORT = Number(process.env.PORT || 4317)
 const app = express()
 app.use(express.json())
+// 导入备份：直接收二进制，避免 base64 膨胀
+app.use('/api/import/backup', express.raw({ type: 'application/octet-stream', limit: '200mb' }))
 
 seedIfEmpty()
 
@@ -1112,6 +1125,163 @@ app.post('/api/settings/clear-data', requireAuth, (_req, res) => {
     `)
   })
   res.json({ ok: true })
+})
+
+/* ---------------- 导入 ---------------- */
+
+/** 校验上传的文件是不是一个结构正确的本系统数据库 */
+function validateBackupFile(file: string): string | null {
+  let probe: InstanceType<typeof Database> | null = null
+  try {
+    probe = new Database(file, { readOnly: true })
+    const tables = probe
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+      .all() as Array<{ name: string }>
+    const names = new Set(tables.map((t) => t.name))
+    for (const required of ['users', 'students', 'enrollments', 'lesson_ledger', 'sessions', 'equipment']) {
+      if (!names.has(required)) return `这不像是本系统的备份（缺少 ${required} 表）`
+    }
+    return null
+  } catch {
+    return '文件不是有效的 SQLite 数据库'
+  } finally {
+    try {
+      probe?.close()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+app.post('/api/import/backup', requireAuth, (req, res) => {
+  const buf = req.body as Buffer
+  if (!Buffer.isBuffer(buf) || buf.length < 1024) {
+    return res.status(400).json({ error: '没有收到文件，或文件太小' })
+  }
+  if (buf.subarray(0, 15).toString('utf8') !== 'SQLite format 3') {
+    return res.status(400).json({ error: '不是 SQLite 数据库文件' })
+  }
+
+  const tmp = path.join(DATA_DIR, `upload-${Date.now()}.db`)
+  try {
+    fs.writeFileSync(tmp, buf)
+    const problem = validateBackupFile(tmp)
+    if (problem) {
+      try {
+        fs.unlinkSync(tmp)
+      } catch {
+        /* ignore */
+      }
+      return res.status(400).json({ error: problem })
+    }
+    fs.copyFileSync(tmp, PENDING_IMPORT_FILE)
+    try {
+      fs.unlinkSync(tmp)
+    } catch {
+      /* ignore */
+    }
+
+    // 统计一下，回给前端做确认展示
+    const probe = new Database(PENDING_IMPORT_FILE, { readOnly: true })
+    const count = (sql: string) => (probe.prepare(sql).get() as { n: number }).n
+    const summary = {
+      students: count('SELECT COUNT(*) AS n FROM students'),
+      sessions: count('SELECT COUNT(*) AS n FROM sessions'),
+      ledger: count('SELECT COUNT(*) AS n FROM lesson_ledger'),
+      equipment: count('SELECT COUNT(*) AS n FROM equipment'),
+      users: count('SELECT COUNT(*) AS n FROM users'),
+    }
+    probe.close()
+
+    res.json({ ok: true, summary })
+  } catch (e) {
+    console.error(e)
+    res.status(500).json({ error: '写入失败，检查磁盘空间' })
+  }
+})
+
+app.post('/api/import/cancel', requireAuth, (_req, res) => {
+  try {
+    if (fs.existsSync(PENDING_IMPORT_FILE)) fs.unlinkSync(PENDING_IMPORT_FILE)
+  } catch {
+    /* ignore */
+  }
+  res.json({ ok: true })
+})
+
+/** 批量导入学员：按姓名找/建班级与课程，每人建课时包并记一条充值流水 */
+app.post('/api/import/students', requireAuth, (req, res) => {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : []
+  if (rows.length === 0) return res.status(400).json({ error: '没有可导入的行' })
+  if (rows.length > 500) return res.status(400).json({ error: '一次最多导入 500 行' })
+
+  const created = { students: 0, classes: 0, skipped: 0 }
+  const errors: string[] = []
+
+  const findClass = db.prepare('SELECT id, course_id FROM classes WHERE name = ?')
+  const findCourse = db.prepare('SELECT id FROM courses WHERE name = ?')
+
+  tx(() => {
+    for (const r of rows) {
+      const name = String(r?.name ?? '').trim()
+      const className = String(r?.className ?? '').trim() || '未分班'
+      const courseName = String(r?.courseName ?? '').trim() || '默认课程'
+      const lessons = Number(r?.lessons ?? 0)
+
+      if (!name) {
+        created.skipped++
+        continue
+      }
+      if (db.prepare('SELECT id FROM students WHERE name = ? AND archived = 0').get(name)) {
+        created.skipped++
+        errors.push(`${name} 已存在，跳过`)
+        continue
+      }
+
+      let course = findCourse.get(courseName) as { id: number } | undefined
+      if (!course) {
+        const info = db
+          .prepare('INSERT INTO courses (name, default_minutes) VALUES (?, 90)')
+          .run(courseName)
+        course = { id: Number(info.lastInsertRowid) }
+      }
+
+      let cls = findClass.get(className) as { id: number; course_id: number } | undefined
+      if (!cls) {
+        const info = db
+          .prepare('INSERT INTO classes (course_id, name, capacity) VALUES (?, ?, 12)')
+          .run(course.id, className)
+        cls = { id: Number(info.lastInsertRowid), course_id: course.id }
+        created.classes++
+      }
+
+      const sid = Number(
+        db.prepare("INSERT INTO students (name) VALUES (?)").run(name).lastInsertRowid
+      )
+      const eid = Number(
+        db
+          .prepare(
+            'INSERT INTO enrollments (student_id, class_id, course_id, purchased_lessons, bonus_lessons) VALUES (?, ?, ?, ?, 0)'
+          )
+          .run(sid, cls.id, course.id, Math.max(0, lessons)).lastInsertRowid
+      )
+      if (lessons > 0) {
+        db.prepare(
+          "INSERT INTO lesson_ledger (enrollment_id, type, delta, occurred_at, reason) VALUES (?, 'charge', ?, datetime('now','localtime'), ?)"
+        ).run(eid, lessons, '导入')
+      }
+      created.students++
+    }
+  })
+
+  res.json({ ok: true, created, errors: errors.slice(0, 20) })
+})
+
+app.get('/api/export/students-template.csv', requireAuth, (_req, res) => {
+  const csv = '姓名,班级,课程,剩余课时\n李明,无人机 A 班,无人机编程,8\n张一诺,无人机 A 班,无人机编程,2\n'
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8')
+  res.setHeader('Content-Disposition', 'attachment; filename="学员导入模板.csv"')
+  res.send('\ufeff' + csv)
 })
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))

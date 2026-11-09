@@ -195,6 +195,29 @@ teacher-workbench/
   解决：`scripts/set-icon.cjs` 用 `resedit` 直接写 PE 资源（图标 + ProductName），已固化进 `pack:slim`
 - 验证方式：读回 exe 的 VersionInfo，ProductName 应为「教培工作台」
 
+## 导入与还原（换电脑）
+
+**整库导入是"下次启动生效"**，因为运行中的 SQLite 连接不能直接被替换：
+
+```
+POST /api/import/backup（二进制 .db）
+  → 校验文件头 'SQLite format 3' + 六张必需表
+  → 存成 <dataDir>/import-pending.db
+  → 返回 summary（学员/课次/流水/器材/账号数）
+POST /api/native/relaunch → 重启
+启动时 db.ts 的 applyPendingImport()：
+  当前库 → workbench.db.bak（保留，反悔用）
+  import-pending.db → workbench.db（覆盖）
+  删掉旧 -wal/-shm
+POST /api/import/cancel → 反悔，删掉 pending 文件
+```
+
+**学员 CSV**：`POST /api/import/students`，前端 FileReader 解析（姓名,班级,课程,剩余课时），
+后端按名字找/建班级与课程，重名跳过，课时记一条 charge 流水。模板 `GET /api/export/students-template.csv`。
+
+**坑**：`express.raw` 要挂在 `/api/import/backup` 这个路径上（`app.use(path, raw)`），
+否则 `express.json()` 会先吃掉请求体。
+
 ## 首次启动引导
 
 - `Onboarding.tsx`：三步（创建账号 → 数据位置 → 数据来源），完成后写 `app_config.onboarded=1`
@@ -212,6 +235,11 @@ teacher-workbench/
 `pickPort()` 从 4600 开始探测，被占用才顺延。
 
 ## 变更记录
+
+### 2026-11-09 · v1.2（导入）
+- 整库导入：上传 .db → 校验 → pending → 重启替换，旧库保留 .bak 可反悔
+- 学员 CSV 批量导入：自动建班级/课程，重名跳过，附模板下载
+- 验证：导出 116KB → 上传 → summary 正确；CSV 导入 2 人建 1 班；重复导入被跳过
 
 ### 2026-11-09 · v1.1（首次启动引导）
 - 三步引导页，安装后不再"一进来就开始用"

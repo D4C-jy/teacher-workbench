@@ -30,6 +30,40 @@ export const DATA_DIR = resolveDataDir()
 fs.mkdirSync(DATA_DIR, { recursive: true })
 
 export const DB_FILE = path.join(DATA_DIR, 'workbench.db')
+export const PENDING_IMPORT_FILE = path.join(DATA_DIR, 'import-pending.db')
+
+/**
+ * 导入备份是「下次启动生效」：
+ * 上传的库先存成 import-pending.db，这里在打开连接前替换掉正式库，
+ * 旧库留一份 workbench.db.bak 以便反悔。
+ */
+function applyPendingImport() {
+  if (!fs.existsSync(PENDING_IMPORT_FILE)) return
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      fs.copyFileSync(DB_FILE, `${DB_FILE}.bak`)
+    }
+    for (const ext of ['-wal', '-shm']) {
+      try {
+        fs.unlinkSync(DB_FILE + ext)
+      } catch {
+        /* 文件可能不存在或被占用，忽略 */
+      }
+    }
+    fs.copyFileSync(PENDING_IMPORT_FILE, DB_FILE)
+    try {
+      fs.unlinkSync(PENDING_IMPORT_FILE)
+    } catch {
+      /* 删不掉也无妨，下次启动会再覆盖一遍 */
+    }
+    console.log('[db] 已应用导入的备份，原库备份为 workbench.db.bak')
+  } catch (e) {
+    console.error('[db] 应用导入备份失败', e)
+  }
+}
+
+applyPendingImport()
+
 export const db = new DatabaseSync(DB_FILE)
 
 db.exec('PRAGMA journal_mode = WAL')

@@ -33,6 +33,15 @@ export default function Settings() {
   const [movePath, setMovePath] = useState('')
   const [moving, setMoving] = useState(false)
   const [needsRestart, setNeedsRestart] = useState(false)
+  const [importSummary, setImportSummary] = useState<{
+    students: number
+    sessions: number
+    ledger: number
+    equipment: number
+    users: number
+  } | null>(null)
+  const [csvRows, setCsvRows] = useState<Array<{ name: string; className: string; courseName: string; lessons: number }>>([])
+  const [importing, setImporting] = useState(false)
 
   async function load() {
     try {
@@ -156,6 +165,98 @@ export default function Settings() {
     } catch {
       toast('请手动关闭并重新打开程序')
     }
+  }
+
+  /** 选择 .db 备份文件并上传（不会立刻生效，重启后替换） */
+  async function onPickBackup(file: File) {
+    setImporting(true)
+    setImportSummary(null)
+    try {
+      const token = localStorage.getItem('twb.token')
+      const res = await fetch('/api/import/backup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: file,
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || '导入失败')
+      setImportSummary(data.summary)
+      setNeedsRestart(true)
+      toast('备份已接收，重启后生效')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '导入失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  async function cancelImport() {
+    try {
+      await api('/import/cancel', { method: 'POST' })
+      setImportSummary(null)
+      setNeedsRestart(false)
+      toast('已取消导入')
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '取消失败')
+    }
+  }
+
+  /** 读 CSV：姓名,班级,课程,剩余课时 */
+  function onPickCsv(file: File) {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = String(reader.result ?? '').replace(/^\ufeff/, '')
+      const lines = text.split(/\r?\n/).filter((l) => l.trim())
+      lines.shift() // 表头
+      const rows = lines
+        .map((l) => {
+          const c = l.split(',').map((x) => x.trim())
+          return {
+            name: c[0] ?? '',
+            className: c[1] ?? '',
+            courseName: c[2] ?? '',
+            lessons: Number(c[3] ?? 0) || 0,
+          }
+        })
+        .filter((r) => r.name)
+      setCsvRows(rows)
+      if (rows.length === 0) toast('没读到有效数据，检查一下格式')
+    }
+    reader.readAsText(file, 'utf-8')
+  }
+
+  async function confirmCsv() {
+    if (csvRows.length === 0) return
+    setImporting(true)
+    try {
+      const r = await api<{ created: { students: number; classes: number; skipped: number }; errors: string[] }>(
+        '/import/students',
+        { body: { rows: csvRows } }
+      )
+      setCsvRows([])
+      toast(`导入 ${r.created.students} 名学员，新建 ${r.created.classes} 个班${r.created.skipped ? `，跳过 ${r.created.skipped}` : ''}`)
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '导入失败')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  async function downloadTemplate() {
+    const token = localStorage.getItem('twb.token')
+    const res = await fetch('/api/export/students-template.csv', {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '学员导入模板.csv'
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   async function backup() {
@@ -353,6 +454,104 @@ export default function Settings() {
           </form>
         </div>
       )}
+
+      {/* 导入 */}
+      <section className="set-card">
+        <h3>导入与还原</h3>
+        <p className="set-desc">
+          换电脑时：在旧电脑点「下载备份」，把得到的 .db 文件拷过来，在新电脑这里导入，数据完整还原。
+        </p>
+
+        <div className="set-import">
+          <label className={`pill small dark${importing ? ' disabled' : ''}`} style={{ height: 32, cursor: 'pointer' }}>
+            {importing ? '处理中…' : '导入备份文件（.db）'}
+            <input
+              type="file"
+              accept=".db,.sqlite,.sqlite3"
+              style={{ display: 'none' }}
+              disabled={importing}
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) onPickBackup(f)
+                e.target.value = ''
+              }}
+            />
+          </label>
+          <button className="pill small" onClick={downloadTemplate} style={{ height: 32 }}>
+            下载学员表示例
+          </button>
+        </div>
+
+        {importSummary && (
+          <div className="set-import-result">
+            <b>备份已接收，重启程序后生效</b>
+            <span>
+              含 {importSummary.students} 名学员 · {importSummary.sessions} 节课次 ·{' '}
+              {importSummary.ledger} 条课时流水 · {importSummary.equipment} 台器材 ·{' '}
+              {importSummary.users} 个账号
+            </span>
+            <span style={{ color: 'var(--ink-3)' }}>
+              当前数据会保留为 workbench.db.bak，确认新数据没问题后再删。
+            </span>
+            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+              {data.canPickFolder && (
+                <button className="pill small dark" onClick={restartNow} style={{ height: 30 }}>
+                  立即重启生效
+                </button>
+              )}
+              <button className="pill small" onClick={cancelImport} style={{ height: 30 }}>
+                取消导入
+              </button>
+            </div>
+          </div>
+        )}
+
+        <hr className="set-hr" />
+
+        <p className="set-desc">
+          也可以只导入学员名单：CSV 四列（姓名, 班级, 课程, 剩余课时），班级和课程会自动创建。
+        </p>
+        <div className="set-import">
+          <label className="pill small" style={{ height: 32, cursor: 'pointer' }}>
+            选择学员 CSV
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) onPickCsv(f)
+                e.target.value = ''
+              }}
+            />
+          </label>
+          {csvRows.length > 0 && (
+            <>
+              <span style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>读到 {csvRows.length} 行</span>
+              <button className="pill small dark" onClick={confirmCsv} disabled={importing} style={{ height: 32 }}>
+                确认导入
+              </button>
+              <button className="pill small" onClick={() => setCsvRows([])} style={{ height: 32 }}>
+                清空
+              </button>
+            </>
+          )}
+        </div>
+
+        {csvRows.length > 0 && (
+          <div className="set-csv">
+            {csvRows.slice(0, 6).map((r, i) => (
+              <div key={i}>
+                <b>{r.name}</b>
+                <span>{r.className || '未分班'}</span>
+                <span>{r.courseName || '默认课程'}</span>
+                <em>{r.lessons} 节</em>
+              </div>
+            ))}
+            {csvRows.length > 6 && <div className="set-csv-more">…还有 {csvRows.length - 6} 行</div>}
+          </div>
+        )}
+      </section>
 
       {flash && <div className="st-flash">{flash}</div>}
     </div>

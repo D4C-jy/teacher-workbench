@@ -62,7 +62,7 @@ export default function Login() {
 
       <div className="login-card">
         <div className="login-brand">
-          <span className="mark" />
+          <img className="mark" src="/icon.png" alt="" />
           教培工作台
         </div>
         <p className="login-sub">

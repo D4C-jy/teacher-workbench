@@ -85,6 +85,7 @@ function createWindow() {
     minHeight: 720,
     backgroundColor: '#F4F2EE',
     title: '教培工作台',
+    icon: path.join(appRoot, 'dist', 'icon.png'),
     autoHideMenuBar: true,
     show: false,
     webPreferences: {

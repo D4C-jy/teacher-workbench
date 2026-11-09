@@ -40,19 +40,32 @@ const appDir = path.join(staging, 'resources', 'app')
 mkdirSync(path.join(staging, 'locales'), { recursive: true })
 mkdirSync(appDir, { recursive: true })
 
-console.log('· 复制运行时（仅中英文语言包）')
-cpSync(path.join(electronDist, 'electron.exe'), path.join(staging, '教培工作台.exe'))
-for (const f of REQUIRED) {
-  const src = path.join(electronDist, f)
-  if (existsSync(src)) cpSync(src, path.join(staging, f))
-}
-for (const lang of ['zh-CN.pak', 'en-US.pak']) {
-  cpSync(path.join(electronDist, 'locales', lang), path.join(staging, 'locales', lang))
+const runtimeReady = existsSync(path.join(staging, '教培工作台.exe'))
+if (runtimeReady) {
+  console.log('· 运行时已存在，跳过复制（只刷新应用代码）')
+} else {
+  console.log('· 复制运行时（仅中英文语言包）')
+  cpSync(path.join(electronDist, 'electron.exe'), path.join(staging, '教培工作台.exe'))
+  for (const f of REQUIRED) {
+    const src = path.join(electronDist, f)
+    if (existsSync(src)) cpSync(src, path.join(staging, f))
+  }
+  for (const lang of ['zh-CN.pak', 'en-US.pak']) {
+    cpSync(path.join(electronDist, 'locales', lang), path.join(staging, 'locales', lang))
+  }
 }
 
 console.log('· 复制应用')
 for (const item of ['dist', 'dist-server', 'electron', 'package.json']) {
   cpSync(path.join(root, item), path.join(appDir, item), { recursive: true })
+}
+
+// 用 --prepackaged 时 builder 不会给 exe 打图标，这里自己补
+const icoPath = path.join(root, 'build', 'icon.ico')
+const exePath = path.join(staging, '教培工作台.exe')
+if (existsSync(icoPath) && existsSync(exePath)) {
+  console.log('· 写入 exe 图标与版本信息')
+  execSync(`node scripts/set-icon.cjs "${exePath}" "${icoPath}" 教培工作台`, { stdio: 'inherit', cwd: root })
 }
 
 console.log('· 调用 electron-builder')

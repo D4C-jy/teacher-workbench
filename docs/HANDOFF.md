@@ -186,7 +186,21 @@ teacher-workbench/
 
 ---
 
+## 图标
+
+- 源文件：`../teacher-workbench-icon/icon-1024.png`（四旋翼 + 终端「＞_」）
+- `build/icon.png` 给 electron-builder 生成安装包图标；`build/icon.ico`（7 档，16→256）给 exe 用
+- `public/icon.png`(512) 作为 favicon 与界面 logo，`public/icon-1024.png` 给 apple-touch-icon
+- **坑**：`--prepackaged` 模式下 electron-builder **不会**给 exe 打图标（日志里没有 "default Electron icon" 警告，但 exe 图标其实没变）。
+  解决：`scripts/set-icon.cjs` 用 `resedit` 直接写 PE 资源（图标 + ProductName），已固化进 `pack:slim`
+- 验证方式：读回 exe 的 VersionInfo，ProductName 应为「教培工作台」
+
 ## 变更记录
+
+### 2026-11-09 · v1.0（应用图标）
+- 全站换图标：安装包 / 桌面快捷方式 / 窗口 / 任务栏 / favicon / 顶栏 / 登录页
+- `scripts/set-icon.cjs`：resedit 写 PE 图标与版本信息，解决 prepackaged 不打图标的问题
+- `pack-slim.mjs`：已有运行时则跳过 250MB 复制，避免重复拷贝导致进程崩溃
 
 ### 2026-11-09 · v0.9（数据目录可自选）
 - Electron 首次启动弹目录选择框（`dialog.showOpenDialog`），默认建议 `D://教培工作台数据`，

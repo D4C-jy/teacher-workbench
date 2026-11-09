@@ -84,7 +84,7 @@ export default function AppShell() {
 
       <header className="topbar">
         <div className="logo">
-          <span className="mark" />
+          <img className="mark" src="/icon.png" alt="" />
           教培工作台
         </div>
         <span className="demo-pill">演示数据</span>

@@ -1,7 +1,7 @@
 {
   "name": "teacher-workbench",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "description": "教培老师个人工作台：课时、课表、器材",
   "scripts": {
@@ -36,6 +36,7 @@
     "electron": "^45.2.3",
     "electron-builder": "^26.18.0",
     "esbuild": "^0.28.2",
+    "resedit": "^3.1.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"
@@ -62,7 +63,8 @@
           ]
         }
       ],
-      "artifactName": "TeacherWorkbench-Setup-${version}.${ext}"
+      "artifactName": "TeacherWorkbench-Setup-${version}.${ext}",
+      "icon": "build/icon.png"
     },
     "nsis": {
       "oneClick": false,

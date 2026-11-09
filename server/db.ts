@@ -231,12 +231,6 @@ CREATE INDEX IF NOT EXISTS idx_rules_class ON schedule_rules(class_id);
   if (!scols.some((c) => c.name === 'gender')) {
     db.exec('ALTER TABLE students ADD COLUMN gender TEXT')
   }
-  // 演示数据的报名缴费改到 2 个月前（避免污染本月续费统计）
-  db.exec(`
-    UPDATE lesson_ledger SET occurred_at = date('now','localtime','-2 month')
-     WHERE type = 'charge' AND reason = '报名缴费（演示数据）'
-       AND occurred_at LIKE date('now','localtime') || '%'
-  `)
   // 补充课程
   for (const cn of ['C++', '机械臂', 'XRmaker', '3D 打印']) {
     const has = db.prepare('SELECT id FROM courses WHERE name = ?').get(cn)
@@ -354,10 +348,9 @@ export function seedIfEmpty() {
         sid, classId, courseId, remain + used, 0, 120
       )
       // 先记充值，再记已消耗，余额 = 两者相加
-      // 报名缴费放在 2 个月前，避免被算进「本月续费」
       run(
-        "INSERT INTO lesson_ledger (enrollment_id, type, delta, occurred_at, reason) VALUES (?, ?, ?, date('now','localtime','-2 month'), ?)",
-        eid, 'charge', remain + used, '报名缴费（演示数据）'
+        'INSERT INTO lesson_ledger (enrollment_id, type, delta, occurred_at, reason) VALUES (?, ?, ?, ?, ?)',
+        eid, 'charge', remain + used, `${today} 00:00`, '报名缴费（演示数据）'
       )
       if (used > 0) {
         run(

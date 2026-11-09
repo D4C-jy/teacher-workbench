@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { api, type TodayData } from '../lib/api'
 import { Figure, Uav } from '../components/Glyphs'
 import { useTilt } from '../lib/useTilt'
+import { useCountdown } from '../lib/useCountdown'
+import RollNum from '../components/RollNum'
 
 const LOW_THRESHOLD = 3
 
@@ -40,10 +42,27 @@ function Seats({ students }: { students: Array<{ id: number; name: string; balan
   )
 }
 
+function NextCard({ second }: { second: { start: string; courseName: string; className: string } }) {
+  const { text, urgent } = useCountdown(second.start)
+  return (
+    <div className="nextcard">
+      <span className="nc-t">NEXT</span>
+      <span className="nc-b">
+        {second.start}　{second.courseName} · {second.className}
+      </span>
+      {text && (
+        <span className={`countdown${urgent ? ' urgent' : ''}`}>
+          距上课还有 {text}
+        </span>
+      )}
+    </div>
+  )
+}
+
 function TiltRoom({
   className,
   children,
-  tilt = 2.5,
+  tilt = 2,
 }: {
   className: string
   children: React.ReactNode
@@ -167,14 +186,7 @@ export default function Today() {
                 {second ? `下一节 ${second.start}` : '今天没有后续课程'}
               </span>
             </div>
-            {second && (
-              <div className="nextcard">
-                <span className="nc-t">NEXT</span>
-                <span className="nc-b">
-                  {second.start}　{second.courseName} · {second.className}
-                </span>
-              </div>
-            )}
+            {second && <NextCard second={second} />}
             <div className="bench2" />
             <span className="chair" style={{ right: 184, bottom: 64 }} />
             <span className="chair" style={{ right: 210, bottom: 64 }} />
@@ -193,15 +205,15 @@ export default function Today() {
 
         <div className="stats">
           <div>
-            <b>{data.stats.sessions}</b>
+            <RollNum value={data.stats.sessions} />
             <span>节课</span>
           </div>
           <div>
-            <b>{data.stats.attendances}</b>
+            <RollNum value={data.stats.attendances} />
             <span>人次</span>
           </div>
           <div>
-            <b style={{ color: 'var(--alert)' }}>{data.stats.lowBalance}</b>
+            <RollNum value={data.stats.lowBalance} style={{ color: 'var(--alert)' }} />
             <span>待续费</span>
           </div>
         </div>
@@ -241,6 +253,7 @@ export default function Today() {
         </div>
         <div className="arow">
           <span className="n">{data.lentLoans.length}</span> 台器材未交回
+          {data.lentLoans.length > 0 && <span className="eq-dot" style={{ marginLeft: 6 }} />}
           {data.lentLoans[0] && (
             <span className="badge amber" style={{ marginLeft: 'auto' }}>
               {data.lentLoans[0].code}

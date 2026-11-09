@@ -662,7 +662,8 @@ button { cursor: pointer; }
 .st-head p { margin: 5px 0 0; font-size: 12.5px; color: var(--ink-3); }
 
 .st-card { background: #fbfaf7; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-.stc-num { font-family: var(--mono); font-size: 34px; font-weight: 700; line-height: 1; }
+.stc-num { font-family: var(--mono); font-size: 34px; font-weight: 700; line-height: 1; display: flex; align-items: baseline; }
+.stc-num .num-roll { font-size: inherit; font-weight: inherit; }
 .stc-num span { font-family: var(--sans); font-size: 11.5px; font-weight: 400; color: var(--ink-3); margin-left: 8px; }
 .stc-meta { display: flex; gap: 22px; font-size: 12px; }
 .stc-meta div { display: flex; flex-direction: column; gap: 2px; }
@@ -1125,4 +1126,93 @@ button { cursor: pointer; }
 }
 .room:hover .room-glare {
   opacity: 1;
+}
+
+/* ==================== 语义化动效（安静、克制） ==================== */
+
+/* 告警脉冲：课时告急的名牌 / 红色徽标，柔和呼吸提醒，不刺眼 */
+@keyframes pulse-alert {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(168, 59, 43, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(168, 59, 43, .16); }
+}
+.tag.low { animation: pulse-alert 2.6s ease-in-out infinite; }
+
+/* 待处理告警徽标：轻微跳动引起注意 */
+@keyframes nudge {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+.badge.alert, .st-tag.low { animation: nudge 2s ease-in-out infinite; }
+
+/* 器材状态呼吸点：借出/维修的器材有一个跳动的状态光点 */
+@keyframes status-breathe {
+  0%, 100% { opacity: .35; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+.eq-dot { animation: status-breathe 1.8s ease-in-out infinite; }
+
+/* 进行中的课程：一个跳动的"进行中"小圆点 */
+@keyframes live-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .25; }
+}
+.dot.hollow { animation: live-blink 2.2s ease-in-out infinite; }
+
+/* 数字滚动（配合 JS，进入时从 0 滚到目标值） */
+.num-roll { font-variant-numeric: tabular-nums; }
+
+/* 倒计时临近高亮：<15 分钟时 pulse */
+@keyframes countdown-urgent {
+  0%, 100% { color: var(--ink); }
+  50% { color: var(--alert); }
+}
+.countdown.urgent { animation: countdown-urgent 1s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tag.low, .badge.alert, .st-tag.low, .eq-dot, .dot.hollow, .countdown.urgent {
+    animation: none !important;
+  }
+}
+
+/* 器材状态呼吸点：一个小圆点 */
+.eq-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #b9893c; /* 琥珀色，借出/维修状态 */
+}
+
+/* 走廊倒计时 */
+.countdown {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  letter-spacing: .02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 学员详情：切换时淡入 + 轻微上移 */
+@keyframes detail-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.st-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: detail-in .28s cubic-bezier(.22, 1, .36, 1);
+}
+
+/* 流水条目：新条目滑入 */
+@keyframes li-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.st-li { animation: li-in .3s ease both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .st-detail, .st-li { animation: none !important; }
 }

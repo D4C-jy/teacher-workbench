@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { Figure } from '../components/Glyphs'
+import RollNum from '../components/RollNum'
 
 interface StudentItem {
   id: number
@@ -171,15 +172,15 @@ export default function Students() {
         {summary && (
           <div className="st-summary">
             <div>
-              <b>{summary.total}</b>
+              <RollNum value={summary.total} />
               <span>在读学员</span>
             </div>
             <div>
-              <b style={{ color: 'var(--alert)' }}>{summary.low}</b>
+              <RollNum value={summary.low} style={{ color: 'var(--alert)' }} />
               <span>课时不足</span>
             </div>
             <div>
-              <b>{summary.sum}</b>
+              <RollNum value={summary.sum} />
               <span>剩余总课时</span>
             </div>
           </div>
@@ -213,7 +214,7 @@ export default function Students() {
         {!detail ? (
           <div className="st-empty">左边选一个学员</div>
         ) : (
-          <>
+          <div className="st-detail" key={activeId}>
             <div className="st-head">
               <div>
                 <h2>{detail.student.name}</h2>
@@ -229,7 +230,7 @@ export default function Students() {
             {detail.enrollments.map((e) => (
               <div className="st-card" key={e.id}>
                 <div className="stc-num">
-                  {e.balance}
+                  <RollNum value={e.balance} />
                   <span>剩余课时</span>
                 </div>
                 <div className="stc-meta">
@@ -268,7 +269,7 @@ export default function Students() {
                 </div>
               ))}
             </div>
-          </>
+          </div>
         )}
       </aside>
 

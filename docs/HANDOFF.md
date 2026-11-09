@@ -195,6 +195,25 @@ teacher-workbench/
   解决：`scripts/set-icon.cjs` 用 `resedit` 直接写 PE 资源（图标 + ProductName），已固化进 `pack:slim`
 - 验证方式：读回 exe 的 VersionInfo，ProductName 应为「教培工作台」
 
+## 动效（v1.4 语义化增强）
+
+原则：工具型应用要"安静的活力"，动效必须**服务语义**（告警、时间流动、数据变化），不做纯装饰。
+
+- **数字滚动** `useCountUp` + `RollNum` 组件：今日页三个统计、学员页顶部统计与余额大数字，
+  进入时从 0 滚到目标值（约 600ms easeOutCubic，计数场景保持整数，不显示小数中间态）。
+- **告警脉冲** `pulse-alert`：课时告急的名牌柔和呼吸提醒；`.st-tag.low`/`.badge.alert` 轻微上跳。
+- **器材状态呼吸点** `eq-dot`：今日页"器材未交回"行的琥珀色小圆点，1.8s 呼吸。
+- **课程倒计时** `useCountdown` + `NextCard`：走廊下一节课实时 HH:MM:SS，<15 分钟红色脉冲。
+- **进行中状态点** `.dot.hollow`（右侧课程列表空心点）呼吸闪烁，表示"即将开始"。
+- **详情淡入 + 流水滑入**：学员详情切换 `.st-detail` 淡入上移，流水条目 `.st-li` 滑入。
+- **修正**：`.live` 是"已下课/待上课"状态胶囊，不该持续闪烁——把 blink 从它移到 `.dot.hollow`。
+- 3D 倾斜角度 2.5°→2°；全部动效包在 `prefers-reduced-motion: reduce` 里。
+
+### 审查结论（依据 design-taste 技能核心原则）
+该技能面向营销落地页，本软件是桌面工具应用，只采纳其适用原则：
+「hover 微动效要安静、一个页面 1-2 个 dealt moment、不要 tilt/轮播/定时 tab、尊重 reduced-motion」。
+未照搬其"一屏一节/检查脚本"，因不适用。
+
 ## 动效
 
 - ③ 弹性按压：`.pill/.eq-btn/.tab/.tt-card/.st-row/.ob-choice` 按下 `scale(.96)` + 内阴影，
@@ -246,6 +265,11 @@ POST /api/import/cancel → 反悔，删掉 pending 文件
 `pickPort()` 从 4600 开始探测，被占用才顺延。
 
 ## 变更记录
+
+### 2026-11-09 · v1.4（语义化动效）
+- 数字滚动（今日页 + 学员页统计/余额）
+- 告警脉冲、器材呼吸点、课程倒计时、进行中状态点、详情淡入流水滑入
+- 3D 倾斜降到 2°，修正 .live 闪烁语义
 
 ### 2026-11-09 · v1.3（动效）
 - 全站弹性按压反馈（scale .96 + 内阴影 + 回弹超调）

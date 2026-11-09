@@ -229,13 +229,21 @@ CREATE INDEX IF NOT EXISTS idx_rules_class ON schedule_rules(class_id);
       db.exec(`ALTER TABLE ${table} ADD COLUMN owner_id INTEGER NOT NULL DEFAULT 0`)
     }
   }
-  // 把现有数据归给最早注册的账号（老数据不丢）
+  // 把现有数据归给最早注册的账号（老数据不丢）；课程是全局模板，归 0 共享
   const first = db.prepare('SELECT id FROM users ORDER BY id LIMIT 1').get() as { id: number } | undefined
   if (first) {
-    for (const table of ['courses', 'classes', 'students', 'equipment', 'time_slots']) {
+    for (const table of ['classes', 'students', 'equipment', 'time_slots']) {
       db.prepare(`UPDATE ${table} SET owner_id = ? WHERE owner_id = 0`).run(first.id)
     }
   }
+  // 课程全局共享：所有课程 owner_id 归 0
+  db.exec('UPDATE courses SET owner_id = 0')
+  // 去重：课程按名字唯一（全局），删掉重复的，保留最小的 id
+  db.exec(`
+    DELETE FROM courses WHERE id NOT IN (
+      SELECT MIN(id) FROM courses GROUP BY name
+    )
+  `)
 }
 
 /* ---- 轻量迁移：课次追源到规则 ---- */

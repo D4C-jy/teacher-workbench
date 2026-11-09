@@ -296,6 +296,22 @@ export default function Settings() {
     URL.revokeObjectURL(url)
   }
 
+  async function clearAllData() {
+    if (!confirm('确认清除所有数据？\n\n这会删除当前账号的全部学员、课表、器材数据，并退出登录。此操作不可恢复，建议先下载备份。')) {
+      return
+    }
+    setBusy(true)
+    try {
+      await api('/settings/clear-data', { method: 'POST' })
+      toast('数据已清空')
+      await load()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '清除失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function backup() {
     const token = localStorage.getItem('twb.token')
     const res = await fetch('/api/backup', { headers: token ? { Authorization: `Bearer ${token}` } : {} })
@@ -478,6 +494,9 @@ export default function Settings() {
           )}
           <button className="pill small dark" onClick={backup} style={{ height: 32 }}>
             下载备份
+          </button>
+          <button className="pill small" onClick={clearAllData} disabled={busy} style={{ height: 32, color: '#a32b2b', borderColor: '#e0b9b3' }}>
+            清除所有数据
           </button>
         </div>
         <p className="set-desc" style={{ marginTop: 6 }}>

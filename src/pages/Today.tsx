@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, type TodayData } from '../lib/api'
 import { Figure, Uav } from '../components/Glyphs'
+import { useAuth } from '../lib/auth'
 import { useTilt } from '../lib/useTilt'
 import { useCountdown } from '../lib/useCountdown'
 import { useCurrentSessions } from '../lib/useCurrentSessions'
@@ -90,6 +91,7 @@ function TiltRoom({
 }
 
 export default function Today() {
+  const { user } = useAuth()
   const { data, error } = useToday()
   const { current, next } = useCurrentSessions(data?.sessions)
   const [consumeSession, setConsumeSession] = useState<{
@@ -152,7 +154,7 @@ export default function Today() {
             )}
             <div className="board" />
             <div className="tzone">
-              <span className="tz-name">王老师</span>
+              <span className="tz-name">{user?.displayName || '老师'}</span>
               <Figure size={34} />
               <span className="tz-desk" />
             </div>

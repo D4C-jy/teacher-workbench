@@ -146,6 +146,8 @@ export default function Students() {
       setQ('')
       setClassId(0)
       setActiveId(r.id)
+      // 显式重新拉列表，确保列表实时刷新（依赖相同值 setState 不会触发 useEffect）
+      await load()
       setTimeout(() => setFlash(''), 2400)
     } catch (err) {
       setFlash(err instanceof Error ? err.message : '新增失败')

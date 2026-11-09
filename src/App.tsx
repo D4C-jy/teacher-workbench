@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './lib/auth'
+import { api, getToken } from './lib/api'
 import AppShell from './layout/AppShell'
 import Login from './pages/Login'
 import Today from './pages/Today'
@@ -18,8 +19,9 @@ function Protected() {
   const [onboard, setOnboard] = useState<OnboardState | null>(null)
 
   useEffect(() => {
-    fetch('/api/onboard-state')
-      .then((r) => r.json())
+    const token = getToken()
+    fetch('/api/onboard-state', { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d) => setOnboard({ onboarded: d.onboarded, dataDir: d.dataDir, defaultDataDir: d.defaultDataDir, canPickFolder: d.canPickFolder }))
       .catch(() => setOnboard({ onboarded: true, dataDir: '', defaultDataDir: '', canPickFolder: false }))
   }, [])

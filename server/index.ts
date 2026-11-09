@@ -353,7 +353,7 @@ function ensureWeekSessions(weekStart: string, ownerId: number) {
 app.get('/api/meta', requireAuth, (req, res) => {
   const ownerId = req.user!.id
   res.json({
-    courses: db.prepare('SELECT id, name FROM courses WHERE owner_id = ? ORDER BY id').all(ownerId),
+    courses: db.prepare('SELECT id, name FROM courses ORDER BY id').all(),
     classes: db
       .prepare(
         `SELECT cl.id, cl.name, cl.course_id, cl.capacity, c.name AS course_name
@@ -400,7 +400,7 @@ app.get('/api/classes', requireAuth, (req, res) => {
     classes: (rows as Array<{ id: number; name: string; course_id: number; capacity: number; course_name: string; student_count: number }>).map(
       (c) => ({ ...c, students: byClass.get(c.id) ?? [] })
     ),
-    courses: db.prepare('SELECT id, name FROM courses WHERE owner_id = ? ORDER BY id').all(ownerId),
+    courses: db.prepare('SELECT id, name FROM courses ORDER BY id').all(),
     // 未分班学员（可用于调班）
     unassigned: db
       .prepare(
@@ -424,7 +424,7 @@ app.post('/api/classes', requireAuth, (req, res) => {
   if (!courseId) return res.status(400).json({ error: '请选择课程' })
 
   // 校验课程归属
-  const course = db.prepare('SELECT id FROM courses WHERE id = ? AND owner_id = ?').get(courseId, ownerId)
+  const course = db.prepare('SELECT id FROM courses WHERE id = ?').get(courseId)
   if (!course) return res.status(400).json({ error: '课程不存在' })
 
   const dup = db.prepare('SELECT id FROM classes WHERE name = ? AND owner_id = ?').get(name, ownerId)
@@ -856,9 +856,9 @@ function ensureUnassignedClass(ownerId: number): { id: number; course_id: number
   if (existing) return existing
 
   // 需要一个课程，取本账号第一个，没有就建一个「通用」
-  let course = db.prepare('SELECT id FROM courses WHERE owner_id = ? ORDER BY id LIMIT 1').get(ownerId) as { id: number } | undefined
+  let course = db.prepare("SELECT id FROM courses WHERE name = '通用'").get() as { id: number } | undefined
   if (!course) {
-    const info = db.prepare("INSERT INTO courses (owner_id, name, default_minutes) VALUES (?, '通用', 90)").run(ownerId)
+    const info = db.prepare("INSERT INTO courses (name, default_minutes) VALUES ('通用', 90)").run()
     course = { id: Number(info.lastInsertRowid) }
   }
   const info = db.prepare("INSERT INTO classes (owner_id, course_id, name, capacity, note) VALUES (?, ?, '未分班', 100, '系统内置，未分班学员暂存')").run(ownerId, course.id)
@@ -1575,7 +1575,6 @@ app.post('/api/settings/clear-data', requireAuth, (req, res) => {
     db.prepare('DELETE FROM enrollments WHERE student_id IN (SELECT id FROM students WHERE owner_id = ?)').run(ownerId)
     db.prepare('DELETE FROM students WHERE owner_id = ?').run(ownerId)
     db.prepare('DELETE FROM classes WHERE owner_id = ?').run(ownerId)
-    db.prepare('DELETE FROM courses WHERE owner_id = ?').run(ownerId)
     db.prepare('DELETE FROM time_slots WHERE owner_id = ?').run(ownerId)
     db.prepare('DELETE FROM equipment WHERE owner_id = ?').run(ownerId)
   })
